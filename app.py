@@ -62,25 +62,30 @@ def get_col(df, ticker, col_name):
     return pd.Series(dtype='float64')
 
 def calculate_pivots_full(df, ticker):
-    """计算多层 Pivot Points (S1, S2, R1, R2)"""
+    """计算固定的日内 Pivot Points (基于前一交易日数据)"""
     try:
+        # 确保 df 包含足够的数据行
         high_s = safe_get(df, ticker, "High")
         low_s = safe_get(df, ticker, "Low")
         close_s = safe_get(df, ticker, "Close")
         
-        if high_s.empty or low_s.empty or close_s.empty:
+        # 关键修改：必须取 iloc[-2] (昨日)，因为 iloc[-1] 在交易时段是变动的今日数据
+        if len(close_s) >= 2:
+            prev_h = high_s.iloc[-2]
+            prev_l = low_s.iloc[-2]
+            prev_c = close_s.iloc[-2]
+        else:
+            # 如果数据量不足，才退而求其次
             return 0, 0, 0, 0
             
-        high = high_s.iloc[-1]
-        low = low_s.iloc[-1]
-        close = close_s.iloc[-1]
-        pivot = (high + low + close) / 3
-        r1 = (2 * pivot) - low
-        s1 = (2 * pivot) - high
-        r2 = pivot + (high - low)
-        s2 = pivot - (high - low)
+        pivot = (prev_h + prev_l + prev_c) / 3
+        r1 = (2 * pivot) - prev_l
+        s1 = (2 * pivot) - prev_h
+        r2 = pivot + (prev_h - prev_l)
+        s2 = pivot - (prev_h - prev_l)
+        
         return round(s1, 2), round(s2, 2), round(r1, 2), round(r2, 2)
-    except:
+    except Exception as e:
         return 0, 0, 0, 0
 
 # --- 市场结构 analysis 工具 (增强版：修复期权墙 N/A) ---
@@ -240,7 +245,7 @@ def run_v10_pro():
 
     # 交易时段逻辑
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
-    data_daily = yf.download(all_tickers, period="2d", interval="1d", progress=False, auto_adjust=True)
+    data_daily = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
     
     # 宏观斜率计算 (增加安全检查)
     tnx_5m = get_col(data_5m, "^TNX", "Close").tail(10).dropna()
