@@ -201,6 +201,8 @@ def run_v10_pro():
     tnx_slope = np.polyfit(np.arange(len(tnx_5m)), tnx_5m.values, 1)[0] if len(tnx_5m) > 1 else 0
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
+    vix_df = yf.download("^VIX", period="1d", progress=False)
+    vix_val = vix_df["Close"].iloc[-1] if not vix_df.empty else 20.0
 
     v12_reports = []
     audit_data = [] # 用于存储审计所需的原始数据
@@ -226,19 +228,39 @@ def run_v10_pro():
         else:
             structure = "📉 弱势运行"
             
-        # 3. 量价背离分析
-        p_slope = np.polyfit(np.arange(5), c_5.tail(5).values, 1)[0]
-        vol_slope = np.polyfit(np.arange(5), v_5.tail(5).values, 1)[0]
-        is_div = p_slope > 0 and vol_slope < 0
+        # --- 3. 量价背离分析 (稳定性增强版) ---
+        tail_data = c_5.tail(5)
+        if len(tail_data) >= 2:
+            p_slope = np.polyfit(np.arange(len(tail_data)), tail_data.values, 1)[0]
+            vol_tail = v_5.tail(5)
+            vol_slope = np.polyfit(np.arange(len(vol_tail)), vol_tail.values, 1)[0]
+            is_div = p_slope > 0 and vol_slope < 0
+        else:
+            is_div = False
         
         # 4. POC 与 期权墙
         poc, call_wall, put_wall = get_market_structure(t, data_5m)
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
-        # 5. Squeeze 变盘判定
+       # --- 5. Squeeze 变盘判定 (极致稳健版) ---
         bb = ta.bbands(c_5, length=20, std=2)
         kc = ta.kc(get_col(data_5m, t, "High"), get_col(data_5m, t, "Low"), c_5, length=20)
-        is_sqz = (bb.iloc[-1, 2] - bb.iloc[-1, 0]) < (kc.iloc[-1, 2] - kc.iloc[-1, 0]) if bb is not None and kc is not None else False
+        
+        is_sqz = False
+        # 使用 len() 判断比 .empty 在某些环境下更不容易报错
+        try:
+            if bb is not None and kc is not None:
+                if len(bb) > 0 and len(kc) > 0:
+                    # 确保最后一行不是 NaN 再进行比较
+                    upper_bb = bb.iloc[-1, 2]
+                    lower_bb = bb.iloc[-1, 0]
+                    upper_kc = kc.iloc[-1, 2]
+                    lower_kc = kc.iloc[-1, 0]
+                    
+                    if not (np.isnan(upper_bb) or np.isnan(upper_kc)):
+                        is_sqz = (upper_bb - lower_bb) < (upper_kc - lower_kc)
+        except Exception:
+            is_sqz = False
 
         # 6. 综合决策评分
         score = (1 if curr_p > c_vwap else 0) + (1 if curr_p > poc and poc != 0 else 0) + (1 if vvix_intra_slope < 0 else 0)
@@ -279,31 +301,32 @@ def run_v10_pro():
     st.markdown("#### 🤖 Sentinel 战术全维度审计 (Hybrid Pro)")
     
     for a in audit_data:
-        # 性质警告
-        if "诱多" in a['decision']:
-            st.error(f"🚫 **{a['code']} 性质警告**：典型诱多结构。价格上涨但量能枯竭，且 POC **{a['poc']}** 存在强烈向下引力。")
-        
-        if "反弹" in a['structure']:
-            st.info(f"🩹 **{a['code']} 位阶提示**：虽站上 VWAP 但未收复昨收线 ({a['prev_c']})，目前仅按反弹对待。")
-
-        # 动能预警
-        if a['is_sqz']:
-            st.warning(f"⚡ **{a['code']} 爆发预警**：布林带收口至极限。若放量站上 R1 (**{a['r1']}**) 则是日内强拉开端。")
-
-        # 期权墙与磁吸
-        if a['cw'] != 0 and abs(a['curr_p'] - a['cw']) / a['cw'] < 0.005:
-            st.error(f"🧱 **{a['code']} 压力警告**：现价极度逼近期权 Call 墙 (**{a['cw']}**)，预计此处有机构级抛压。")
+        with st.expander(f"查看 {a['code']} 深度审计报告", expanded=True):
+            # 性质警告
+            if "诱多" in a['decision']:
+                st.error(f"🚫 **性质警告**：典型诱多结构。价格上涨但量能枯竭，且 POC **{a['poc']}** 存在强烈向下引力。")
             
-        if a['poc'] != 0 and abs(a['curr_p'] - a['poc']) / a['poc'] < 0.0015:
-            st.info(f"⚓ **{a['code']} 磁吸效应**：价格锁定在筹码 POC **{a['poc']}**。此时多空均衡，需等待放量打破僵局。")
+            if "反弹" in a['structure']:
+                st.info(f"🩹 **位阶提示**：目前价格 ({a['curr_p']}) 未收复昨收线 ({a['prev_c']})，仅按反弹对待。")
 
-        # 趋势破位
-        if a['curr_p'] < a['s1'] and a['s1'] != 0:
-            st.error(f"⚠️ **{a['code']} 趋势转弱**：跌破 S1 支撑位，警惕向下方期权 Put 墙 (**{a['pw']}**) 回撤的风险。")
+            # 动能预警
+            if a['is_sqz']:
+                st.warning(f"⚡ **爆发预警**：布林带收口至极限。若放量站上 R1 (**{a['r1']}**) 则是日内强拉开端。")
+
+            # 期权墙与磁吸
+            if a['cw'] != 0 and abs(a['curr_p'] - a['cw']) / a['cw'] < 0.005:
+                st.error(f"🧱 **压力警告**：现价极度逼近期权 Call 墙 (**{a['cw']}**)，预计此处有机构级抛压。")
+                
+            if a['poc'] != 0 and abs(a['curr_p'] - a['poc']) / a['poc'] < 0.0015:
+                st.info(f"⚓ **磁吸效应**：价格锁定在筹码 POC **{a['poc']}**。多空均衡，需等待放量打破。")
+
+            # 趋势破位
+            if a['curr_p'] < a['s1'] and a['s1'] != 0:
+                st.error(f"⚠️ **趋势转弱**：跌破 S1 支撑位，警惕向下方期权 Put 墙 (**{a['pw']}**) 回撤的风险。")
             
-        # 新增：高波动期权建议逻辑 (补足盲区)
-        if vix_curr > 30 and "CALL" in sig:
-            audit_notes.append(f"🎭 **{t} 风险提醒**：当前 VIX ({vix_curr:.2f}) 极高，建议使用 Spread (价差套利) 代替单腿买入，防范 IV Crush。")
+            # 修正后的期权策略建议
+            if vix_val > 30 and "CALL" in a['decision']:
+                st.warning(f"🎭 **策略对冲**：当前 VIX ({vix_val:.2f}) 极高，建议使用 Spread (价差) 代替单腿买入，防范 IV 回落。")
 
 # --- 启动运行 ---
 run_omega()
