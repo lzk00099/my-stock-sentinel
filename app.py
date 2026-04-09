@@ -218,9 +218,9 @@ def run_v10_pro():
         poc, call_wall, put_wall = get_market_structure(t, data_5m)
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
-        # 强化打分系统 (计入 POC 支撑阻力判定)
+        # 强化打分系统
         score = (1 if curr_p > vwap else 0) + (1 if (not macd.empty and macd.iloc[-1,0] > macd.iloc[-1,2]) else 0)
-        if curr_p > poc and poc != 0: score += 1 # 价格在筹码峰之上加分
+        if curr_p > poc and poc != 0: score += 1 
         
         if t in ["QQQ", "NVDA"] and tnx_slope > 0.005:
             score -= 1
@@ -246,23 +246,27 @@ def run_v10_pro():
     st.table(pd.DataFrame(v10_reports))
 
     st.markdown("#### 🤖 Sentinel 战术诊断")
+    # 诊断 QQQ (纳指) 状态
     qqq_rep = next((r for r in v10_reports if r['代码'] == "QQQ"), None)
     if qqq_rep:
+        # 1. VVIX 风险
         if vvix_intra_slope > 0.3:
             st.warning(f"⚠️ **风控警报**：波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构买入对冲。")
         
+        # 2. 爆发预警
         if "SQUEEZE" in qqq_rep['期权建议']:
             st.error(f"⚡ **爆发预警**：QQQ 布林带极度收紧，配合 MACD 放量即是 0DTE 进场点。")
         
-        # POC 突破诊断
+        # 3. POC 突破诊断
         curr_p_qqq = qqq_rep['现价']
         poc_qqq = float(qqq_rep['POC(引力位)'])
         if poc_qqq != 0:
             if abs(curr_p_qqq - poc_qqq) / poc_qqq < 0.001:
                 st.info(f"⚓ **引力陷阱**：价格正处于 POC ({poc_qqq}) 核心放量区，此处多空均衡，需等待放量破位。")
 
+        # 4. 美债压力
         if tnx_slope > 0.002:
-            st.info(f"📉 **美债压制**：10Y美债收益率正在攀升，关注 QQQ 在阻力位 R1/R2 附近的被打回风险。")
+            st.info(f"📉 **美债压制**：10Y美债收益率正在攀升，关注 QQQ 在阻力位 {qqq_rep['阻力(R1/R2)']} 附近的被打回风险。")
 
 # --- 启动运行 ---
 run_omega()
