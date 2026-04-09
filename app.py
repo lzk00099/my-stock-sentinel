@@ -62,14 +62,12 @@ def calculate_pivots_full(df, ticker):
     except:
         return 0, 0, 0, 0
 
-# --- 新增：市场结构分析工具 (POC & 期权墙) ---
+# --- 市场结构分析工具 (POC & 期权墙) ---
 def get_market_structure(ticker_str, df_5m):
     """计算日内成交密集区(POC)和期权大单墙"""
-    # 1. 计算 POC (成交量最大的价格片区)
     poc = 0
     try:
         bins = 20
-        # 仅针对当前标的的列进行操作
         temp_df = df_5m.xs(ticker_str, level=1, axis=1) if isinstance(df_5m.columns, pd.MultiIndex) else df_5m
         if not temp_df.empty:
             temp_df['bin'] = pd.cut(temp_df['Close'], bins=bins)
@@ -77,11 +75,10 @@ def get_market_structure(ticker_str, df_5m):
             poc = round(poc_bin.mid, 2)
     except: poc = 0
 
-    # 2. 寻找期权大单墙 (Open Interest 最大值)
     call_wall, put_wall = 0, 0
     try:
         t_obj = yf.Ticker(ticker_str)
-        exp = t_obj.options[0] # 获取最近到期日
+        exp = t_obj.options[0]
         opt = t_obj.option_chain(exp)
         call_wall = opt.calls.loc[opt.calls['openInterest'].idxmax(), 'strike']
         put_wall = opt.puts.loc[opt.puts['openInterest'].idxmax(), 'strike']
@@ -162,17 +159,18 @@ def run_omega():
         else:
             st.success("✅ 各资产走势联动正常，未见明显背离。")
 
-# --- 核心引擎 2: Sentinel V10 Pro (实战决策) ---
+# --- 核心引擎 2: Sentinel V12.4 Pro (替换后的完全体) ---
 @st.fragment(run_every=60)
 def run_v10_pro():
     st.markdown("---")
-    st.markdown("### 🏛️ Sentinel V10.2 | 市场结构与期权全维度决策")
+    st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     
     targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
     
     now, open_time, countdown = get_market_times()
 
+    # --- 保留休眠模式和开盘倒计时 ---
     if not is_market_open():
         st.warning(f"🌙 当前非交易时段。系统进入休眠模式。")
         hours, remainder = divmod(int(countdown.total_seconds()), 3600)
@@ -193,15 +191,18 @@ def run_v10_pro():
             st.table(pd.DataFrame(summary))
         return
 
+    # --- 交易时段：V12.4 完全体逻辑 ---
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
     data_daily = yf.download(all_tickers, period="2d", interval="1d", progress=False, auto_adjust=True)
     
+    # 宏观斜率计算
     tnx_5m = get_col(data_5m, "^TNX", "Close").tail(10)
     tnx_slope = np.polyfit(np.arange(len(tnx_5m)), tnx_5m.values, 1)[0] if len(tnx_5m) > 1 else 0
-    
-    v10_reports = []
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
+
+    v12_reports = []
+    audit_data = [] # 用于存储审计所需的原始数据
 
     for t in targets.keys():
         c_5 = get_col(data_5m, t, "Close")
@@ -210,63 +211,94 @@ def run_v10_pro():
         
         curr_p = c_5.iloc[-1]
         vwap_series = (c_5 * v_5).cumsum() / v_5.cumsum()
-        vwap = vwap_series.iloc[-1]
-        macd = ta.macd(c_5)
-        bb = ta.bbands(c_5, length=20, std=2)
+        c_vwap = vwap_series.iloc[-1]
         
-        # 核心升级：计算 POC 引力位和期权大单墙
+        # 1. VWAP 乖离
+        bias = (curr_p / c_vwap) - 1
+        
+        # 2. 结构判定 (基于昨收和VWAP)
+        prev_c = get_col(data_daily, t, "Close").iloc[-2]
+        if curr_p > prev_c and curr_p > c_vwap:
+            structure = "🚀 强势突破"
+        elif curr_p > c_vwap:
+            structure = "🩹 超跌反弹"
+        else:
+            structure = "📉 弱势运行"
+            
+        # 3. 量价背离分析
+        p_slope = np.polyfit(np.arange(5), c_5.tail(5).values, 1)[0]
+        vol_slope = np.polyfit(np.arange(5), v_5.tail(5).values, 1)[0]
+        is_div = p_slope > 0 and vol_slope < 0
+        
+        # 4. POC 与 期权墙
         poc, call_wall, put_wall = get_market_structure(t, data_5m)
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
-        # 强化打分系统
-        score = (1 if curr_p > vwap else 0) + (1 if (not macd.empty and macd.iloc[-1,0] > macd.iloc[-1,2]) else 0)
-        if curr_p > poc and poc != 0: score += 1 
-        
-        if t in ["QQQ", "NVDA"] and tnx_slope > 0.005:
-            score -= 1
+        # 5. Squeeze 变盘判定
+        bb = ta.bbands(c_5, length=20, std=2)
+        kc = ta.kc(get_col(data_5m, t, "High"), get_col(data_5m, t, "Low"), c_5, length=20)
+        is_sqz = (bb.iloc[-1, 2] - bb.iloc[-1, 0]) < (kc.iloc[-1, 2] - kc.iloc[-1, 0]) if bb is not None and kc is not None else False
 
-        is_squeeze = (bb.iloc[-1,2] - bb.iloc[-1,0]) / bb.iloc[-1,1] < 0.0015 if bb is not None else False
+        # 6. 综合决策评分
+        score = (1 if curr_p > c_vwap else 0) + (1 if curr_p > poc and poc != 0 else 0) + (1 if vvix_intra_slope < 0 else 0)
+        
+        if is_div and curr_p > c_vwap:
+            decision = "🚫 <b style='color:#ef4444;'>诱多 (背离)</b>"
+        elif score >= 3:
+            decision = "🎯 <b style='color:#10b981;'>CALL (爆发)</b>"
+        elif is_sqz:
+            decision = "⚡ <b style='color:#a855f7;'>SQUEEZE</b>"
+        else:
+            decision = "☕ 观望"
 
-        # 信号合成
-        sig = "🎯 CALL (爆发)" if score >= 2 and vvix_intra_slope < 0 else "📉 PUT (杀跌)" if score <= 0 else "☕ 观望"
-        
-        # 期权墙预警标签
-        if call_wall != 0 and abs(curr_p - call_wall) / curr_p < 0.003: sig += " [NEAR CALL WALL]"
-        if put_wall != 0 and abs(curr_p - put_wall) / curr_p < 0.003: sig += " [NEAR PUT WALL]"
-        if is_squeeze: sig += " [SQUEEZE]"
-        
-        v10_reports.append({
-            "代码": t, "现价": round(curr_p, 2), 
-            "POC(引力位)": f"{poc}",
-            "期权墙(C|P)": f"{call_wall} | {put_wall}",
-            "阻力(R1/R2)": f"{r1} | {r2}", "支撑(S1/S2)": f"{s1} | {s2}",
-            "期权建议": sig
+        # 封装表格数据
+        v12_reports.append({
+            "代码": t,
+            "现价": round(curr_p, 2),
+            "结构": structure,
+            "VWAP乖离": f"{bias:+.2%}",
+            "量价": "⚠️背离" if is_div else "✅同步",
+            "POC(引力)": poc,
+            "期权墙(C|P)": f"{call_wall} | {put_wall}" if call_wall != 0 else "N/A",
+            "支撑 S1/S2": f"{s1} / {s2}",
+            "阻力 R1/R2": f"{r1} / {r2}",
+            "决策": decision
         })
+        
+        # 封装审计数据
+        audit_data.append({
+            "code": t, "curr_p": curr_p, "poc": poc, "cw": call_wall, "pw": put_wall, 
+            "is_sqz": is_sqz, "prev_c": prev_c, "r1": r1, "s1": s1, "decision": decision, "structure": structure
+        })
+
+    # 显示主表
+    st.write(pd.DataFrame(v12_reports).to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    # --- 7. 联合作战审计 (Hybrid Audit) ---
+    st.markdown("#### 🤖 Sentinel 战术全维度审计 (Hybrid Pro)")
     
-    st.table(pd.DataFrame(v10_reports))
-
-    st.markdown("#### 🤖 Sentinel 战术诊断")
-    # 诊断 QQQ (纳指) 状态
-    qqq_rep = next((r for r in v10_reports if r['代码'] == "QQQ"), None)
-    if qqq_rep:
-        # 1. VVIX 风险
-        if vvix_intra_slope > 0.3:
-            st.warning(f"⚠️ **风控警报**：波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构买入对冲。")
+    for a in audit_data:
+        # 性质警告
+        if "诱多" in a['decision']:
+            st.error(f"🚫 **{a['code']} 性质警告**：典型诱多结构。价格上涨但量能枯竭，且 POC **{a['poc']}** 存在强烈向下引力。")
         
-        # 2. 爆发预警
-        if "SQUEEZE" in qqq_rep['期权建议']:
-            st.error(f"⚡ **爆发预警**：QQQ 布林带极度收紧，配合 MACD 放量即是 0DTE 进场点。")
-        
-        # 3. POC 突破诊断
-        curr_p_qqq = qqq_rep['现价']
-        poc_qqq = float(qqq_rep['POC(引力位)'])
-        if poc_qqq != 0:
-            if abs(curr_p_qqq - poc_qqq) / poc_qqq < 0.001:
-                st.info(f"⚓ **引力陷阱**：价格正处于 POC ({poc_qqq}) 核心放量区，此处多空均衡，需等待放量破位。")
+        if "反弹" in a['structure']:
+            st.info(f"🩹 **{a['code']} 位阶提示**：虽站上 VWAP 但未收复昨收线 ({a['prev_c']})，目前仅按反弹对待。")
 
-        # 4. 美债压力
-        if tnx_slope > 0.002:
-            st.info(f"📉 **美债压制**：10Y美债收益率正在攀升，关注 QQQ 在阻力位 {qqq_rep['阻力(R1/R2)']} 附近的被打回风险。")
+        # 动能预警
+        if a['is_sqz']:
+            st.warning(f"⚡ **{a['code']} 爆发预警**：布林带收口至极限。若放量站上 R1 (**{a['r1']}**) 则是日内强拉开端。")
+
+        # 期权墙与磁吸
+        if a['cw'] != 0 and abs(a['curr_p'] - a['cw']) / a['cw'] < 0.005:
+            st.error(f"🧱 **{a['code']} 压力警告**：现价极度逼近期权 Call 墙 (**{a['cw']}**)，预计此处有机构级抛压。")
+            
+        if a['poc'] != 0 and abs(a['curr_p'] - a['poc']) / a['poc'] < 0.0015:
+            st.info(f"⚓ **{a['code']} 磁吸效应**：价格锁定在筹码 POC **{a['poc']}**。此时多空均衡，需等待放量打破僵局。")
+
+        # 趋势破位
+        if a['curr_p'] < a['s1'] and a['s1'] != 0:
+            st.error(f"⚠️ **{a['code']} 趋势转弱**：跌破 S1 支撑位，警惕向下方期权 Put 墙 (**{a['pw']}**) 回撤的风险。")
 
 # --- 启动运行 ---
 run_omega()
