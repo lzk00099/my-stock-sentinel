@@ -235,8 +235,19 @@ def run_v10_pro():
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
     
     # VIX 标量获取 (防止 ValueError)
+    # --- 极致稳健的 VIX 获取逻辑 ---
     vix_df = yf.download("^VIX", period="1d", progress=False)
-    vix_val = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 20.0
+    vix_val = 20.0 # 默认值
+    if not vix_df.empty:
+        try:
+            # 无论 yfinance 返回的是单层还是多层索引，使用 .values.flatten() 都能拿到纯数值阵列
+            vix_raw = vix_df["Close"].values.flatten()
+            # 过滤掉 nan 并取最后一个有效值
+            vix_valid = vix_raw[~np.isnan(vix_raw)]
+            if len(vix_valid) > 0:
+                vix_val = float(vix_valid[-1])
+        except Exception:
+            vix_val = 20.0
 
     v12_reports = []
     audit_data = []
