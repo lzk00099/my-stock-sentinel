@@ -117,4 +117,3 @@ def run_v10_pro():
 # --- 启动运行 ---
 run_omega()
 run_v10_pro()
-run_bottom_scanners()
