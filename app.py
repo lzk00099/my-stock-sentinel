@@ -130,7 +130,3 @@ def run_bottom_scanners():
 run_omega()
 run_v10()
 run_bottom_scanners()
-
-# --- 启动运行 ---
-run_omega()
-run_v10_pro()
