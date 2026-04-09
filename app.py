@@ -62,7 +62,7 @@ def calculate_pivots_full(df, ticker):
     except:
         return 0, 0, 0, 0
 
-# --- 市场结构分析工具 (POC & 期权墙) ---
+# --- 市场结构 analysis 工具 (POC & 期权墙) ---
 def get_market_structure(ticker_str, df_5m):
     """计算日内成交密集区(POC)和期权大单墙"""
     poc = 0
@@ -165,7 +165,8 @@ def run_v10_pro():
     st.markdown("---")
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     
-    targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "NVDA": "英伟达"}
+    # 已更新 targets 加入 DIA
+    targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "DIA": "道琼斯", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
     
     now, open_time, countdown = get_market_times()
