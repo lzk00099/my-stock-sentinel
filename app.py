@@ -300,6 +300,10 @@ def run_v10_pro():
         # 趋势破位
         if a['curr_p'] < a['s1'] and a['s1'] != 0:
             st.error(f"⚠️ **{a['code']} 趋势转弱**：跌破 S1 支撑位，警惕向下方期权 Put 墙 (**{a['pw']}**) 回撤的风险。")
+            
+        # 新增：高波动期权建议逻辑 (补足盲区)
+        if vix_curr > 30 and "CALL" in sig:
+            audit_notes.append(f"🎭 **{t} 风险提醒**：当前 VIX ({vix_curr:.2f}) 极高，建议使用 Spread (价差套利) 代替单腿买入，防范 IV Crush。")
 
 # --- 启动运行 ---
 run_omega()
