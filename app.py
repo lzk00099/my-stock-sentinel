@@ -72,8 +72,8 @@ def run_omega():
             c_30, c_5, v_5 = safe_get(data_30m, symbol, "Close"), safe_get(data_5m, symbol, "Close"), safe_get(data_5m, symbol, "Volume")
             if len(c_30) < 20 or c_5.empty: continue
             
-            # --- 计算 Pivot Points (R1/S1) ---
-            prev_day_data = c_30.tail(48) # 模拟约一个交易日
+            # Pivot Points (R1/S1)
+            prev_day_data = c_30.tail(48)
             pivot = (prev_day_data.max() + prev_day_data.min() + prev_day_data.iloc[0]) / 3
             r1, s1 = (2 * pivot) - prev_day_data.min(), (2 * pivot) - prev_day_data.max()
             
@@ -116,19 +116,25 @@ def run_omega():
             st.success("✅ 各资产走势联动正常，未见明显背离，建议按关键位交易。")
 
 # --- 核心引擎 2: Sentinel V10 Pro (实战决策) ---
-@st.fragment(run_every=60) # 交易时段每1分钟自动刷新
+@st.fragment(run_every=60)
 def run_v10_pro():
     st.markdown("---")
     st.markdown("### 🏛️ Sentinel V10.1 | 多维动量与期权决策")
     
-    if not is_market_open():
-        st.warning("🌙 当前非交易时段，系统处于休眠模式。")
-        return
+    # 判断是否为实时更新模式
+    market_active = is_market_open()
+    if not market_active:
+        st.caption("🌙 当前非交易时段，展示最近收盘状态。")
 
     targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
     
-    data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
+    # 如果处于休眠期，拉取最近1天的数据以获取最后收盘价
+    data_5m = yf.download(all_tickers, period="1d" if market_active else "2d", interval="5m", progress=False, auto_adjust=True)
+
+    if data_5m.empty:
+        st.error("无法获取决策层数据。")
+        return
 
     v10_reports = []
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
