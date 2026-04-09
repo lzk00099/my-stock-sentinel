@@ -52,6 +52,8 @@ def run_omega():
         vix_s = safe_get(data_30m, "^VIX", "Close")
         vvix_s = safe_get(data_30m, "^VVIX", "Close")
         tnx_s = safe_get(data_30m, "^TNX", "Close")
+        dx_s = safe_get(data_30m, "DX-Y.NYB", "Close")
+        
         v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
         t_curr = tnx_s.iloc[-1] if not tnx_s.empty else 0
         vv_slope = np.polyfit(np.arange(len(vvix_s.tail(10))), vvix_s.tail(10).values, 1)[0] if len(vvix_s) > 10 else 0
@@ -76,9 +78,32 @@ def run_omega():
             score = (1 if curr_p > curr_vwap else 0) + (1 if macd.iloc[-1,0] > macd.iloc[-1,2] else 0) + (1 if rsi.iloc[-1] > 50 else 0)
             
             sig = "🚀 强力多头" if score == 3 else "📉 空头占优" if score == 0 else "⚖️ 中性震荡"
-            reports.append({"标的": symbol, "名称": name, "最新价": round(curr_p, 2), "RSI": round(rsi.iloc[-1], 1), "诊断": sig})
+            reports.append({"标的": symbol, "名称": name, "最新价": round(curr_p, 2), "RSI": round(rsi.iloc[-1], 1), "诊断结论": sig})
         
         st.table(pd.DataFrame(reports))
+
+        # --- 跨资产专家情报 ---
+        st.markdown("#### 🤖 Sentinel Omega 专家情报")
+        notes = []
+        # 1. 美元压制
+        if not dx_s.empty and len(dx_s) >= 5:
+            if dx_s.iloc[-1] > dx_s.iloc[-5]:
+                notes.append("💵 **美元压制**：美元指数日内走强，通常对纳指期指（NQ）构成估值天花板。")
+        
+        # 2. 比特币流动性
+        btc_s = [r for r in reports if "BTC-USD" in r['标的']]
+        if btc_s and "🚀 强力多头" not in btc_s[0]['诊断结论']:
+            notes.append("₿ **流动性预警**：比特币走势偏弱，反映全球投机资金正在退潮，现货开盘需谨慎追高。")
+            
+        # 3. 高波预警
+        if v_curr > 20:
+            notes.append("🚨 **高波预警**：VIX 站上 20 分界线，任何单边行情都容易出现剧烈反转，建议收紧止盈。")
+
+        if notes:
+            for n in notes:
+                st.info(n)
+        else:
+            st.success("✅ 各资产走势联动正常，未见明显背离，建议按关键位交易。")
 
 # --- 核心引擎 2: Sentinel V10 Pro (实战决策) ---
 @st.fragment(run_every=60) # 交易时段每1分钟自动刷新
@@ -98,21 +123,58 @@ def run_v10_pro():
 
     v10_reports = []
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
-    vvix_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0]
+    vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
 
     for t in targets.keys():
         c_5 = get_col(data_5m, t, "Close")
         v_5 = get_col(data_5m, t, "Volume")
+        if c_5.empty: continue
+        
         curr_p = c_5.iloc[-1]
-        vwap = ((c_5 * v_5).cumsum() / v_5.cumsum()).iloc[-1]
+        vwap_series = (c_5 * v_5).cumsum() / v_5.cumsum()
+        vwap = vwap_series.iloc[-1]
         macd = ta.macd(c_5)
+        bb = ta.bbands(c_5, length=20, std=2)
         
+        # 评分与建议
         score = (1 if curr_p > vwap else 0) + (1 if macd.iloc[-1,0] > macd.iloc[-1,2] else 0)
-        sig = "🎯 CALL (爆发)" if score == 2 and vvix_slope < 0 else "📉 PUT (杀跌)" if score == 0 else "☕ 观望"
         
-        v10_reports.append({"代码": t, "现价": curr_p, "VWAP乖离": f"{((curr_p/vwap)-1):+.2%}", "期权建议": sig})
+        # 挤压逻辑 (Bandwidth)
+        is_squeeze = False
+        if bb is not None:
+            bandwidth = (bb.iloc[-1,2] - bb.iloc[-1,0]) / bb.iloc[-1,1]
+            if bandwidth < 0.0015: # 极度收紧阈值
+                is_squeeze = True
+
+        sig = "🎯 CALL (爆发)" if score == 2 and vvix_intra_slope < 0 else "📉 PUT (杀跌)" if score == 0 else "☕ 观望"
+        if is_squeeze: sig += " [SQUEEZE]"
+        
+        v10_reports.append({
+            "代码": t, 
+            "现价": round(curr_p, 2), 
+            "VWAP乖离": f"{((curr_p/vwap)-1):+.2%}", 
+            "期权建议": sig
+        })
     
     st.dataframe(pd.DataFrame(v10_reports), use_container_width=True)
+
+    # --- Sentinel 战术诊断解读 ---
+    st.markdown("#### 🤖 Sentinel 战术诊断")
+    qqq_rep = next((r for r in v10_reports if r['代码'] == "QQQ"), None)
+    
+    if qqq_rep:
+        # 1. 风险斜率
+        if vvix_intra_slope > 0.3:
+            st.warning(f"⚠️ **风控警报**：日内波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构正在反手做空或买入对冲。")
+        
+        # 2. 爆发预警
+        if "SQUEEZE" in qqq_rep['期权建议']:
+            st.error(f"⚡ **爆发预警**：QQQ 目前布林带极度收紧，一旦价格突破位点并配合 MACD 放量，即是 0DTE 期权进场点。")
+            
+        # 3. 均值回归
+        vwap_diff = abs(float(qqq_rep['VWAP乖离'].strip('%'))/100)
+        if vwap_diff > 0.01:
+            st.info(f"🎈 **均值回归**：当前价格距离 VWAP 较远 ({qqq_rep['VWAP乖离']})，不宜在阻力位附近盲目追高。")
 
 # --- 启动运行 ---
 run_omega()
