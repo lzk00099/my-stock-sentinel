@@ -83,7 +83,7 @@ def calculate_pivots_full(df, ticker):
     except:
         return 0, 0, 0, 0
 
-# --- 市场结构 analysis 工具 ---
+# --- 市场结构 analysis 工具 (增强版：修复期权墙 N/A) ---
 def get_market_structure(ticker_str, df_5m):
     poc = 0
     try:
@@ -100,12 +100,27 @@ def get_market_structure(ticker_str, df_5m):
 
     call_wall, put_wall = 0, 0
     try:
+        # 使用 yfinance Ticker 对象获取期权链
         t_obj = yf.Ticker(ticker_str)
-        exp = t_obj.options[0]
-        opt = t_obj.option_chain(exp)
-        call_wall = opt.calls.loc[opt.calls['openInterest'].idxmax(), 'strike']
-        put_wall = opt.puts.loc[opt.puts['openInterest'].idxmax(), 'strike']
-    except: pass
+        # 获取所有可用的到期日
+        options_dates = t_obj.options
+        if options_dates:
+            # 自动选择最近的一个到期日（通常是 0DTE 或当周到期）
+            target_exp = options_dates[0]
+            opt = t_obj.option_chain(target_exp)
+            
+            # 提取最大未平仓合约 (Open Interest) 所在的行
+            if not opt.calls.empty and 'openInterest' in opt.calls.columns:
+                valid_calls = opt.calls.dropna(subset=['openInterest'])
+                if not valid_calls.empty:
+                    call_wall = valid_calls.loc[valid_calls['openInterest'].idxmax(), 'strike']
+            
+            if not opt.puts.empty and 'openInterest' in opt.puts.columns:
+                valid_puts = opt.puts.dropna(subset=['openInterest'])
+                if not valid_puts.empty:
+                    put_wall = valid_puts.loc[valid_puts['openInterest'].idxmax(), 'strike']
+    except Exception:
+        pass
     
     return poc, call_wall, put_wall
 
