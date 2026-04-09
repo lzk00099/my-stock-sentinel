@@ -169,6 +169,10 @@ def run_v10_pro():
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
     data_daily = yf.download(all_tickers, period="2d", interval="1d", progress=False, auto_adjust=True)
     
+    # 实时获取美债数据评估
+    tnx_5m = get_col(data_5m, "^TNX", "Close").tail(10)
+    tnx_slope = np.polyfit(np.arange(len(tnx_5m)), tnx_5m.values, 1)[0] if len(tnx_5m) > 1 else 0
+    
     v10_reports = []
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
@@ -186,10 +190,16 @@ def run_v10_pro():
         
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
+        # 期权打分逻辑：考虑价格与VWAP、MACD，以及美债的负向压力
         score = (1 if curr_p > vwap else 0) + (1 if (not macd.empty and macd.iloc[-1,0] > macd.iloc[-1,2]) else 0)
+        
+        # 如果是纳指相关或个股，且美债收益率快速拉升，降低打分
+        if t in ["QQQ", "NVDA"] and tnx_slope > 0.005:
+            score -= 1
+
         is_squeeze = (bb.iloc[-1,2] - bb.iloc[-1,0]) / bb.iloc[-1,1] < 0.0015 if bb is not None else False
 
-        sig = "🎯 CALL (爆发)" if score == 2 and vvix_intra_slope < 0 else "📉 PUT (杀跌)" if score == 0 else "☕ 观望"
+        sig = "🎯 CALL (爆发)" if score >= 2 and vvix_intra_slope < 0 else "📉 PUT (杀跌)" if score <= 0 else "☕ 观望"
         if is_squeeze: sig += " [SQUEEZE]"
         
         v10_reports.append({
@@ -203,13 +213,22 @@ def run_v10_pro():
     st.markdown("#### 🤖 Sentinel 战术诊断")
     qqq_rep = next((r for r in v10_reports if r['代码'] == "QQQ"), None)
     if qqq_rep:
+        # 1. VVIX 风险
         if vvix_intra_slope > 0.3:
             st.warning(f"⚠️ **风控警报**：波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构买入对冲。")
+        
+        # 2. 爆发预警
         if "SQUEEZE" in qqq_rep['期权建议']:
             st.error(f"⚡ **爆发预警**：QQQ 布林带极度收紧，配合 MACD 放量即是 0DTE 进场点。")
+        
+        # 3. 均值回归
         vwap_diff = abs(float(qqq_rep['VWAP乖离'].strip('%'))/100)
         if vwap_diff > 0.01:
             st.info(f"🎈 **均值回归**：当前价格距离 VWAP 较远，不宜追高。")
+            
+        # 4. 美债压力诊断
+        if tnx_slope > 0.002:
+            st.info(f"📉 **美债压制**：10Y美债收益率正在日内攀升，关注 QQQ 在阻力位 R1/R2 附近的被打回风险。")
 
 # --- 启动运行 ---
 run_omega()
