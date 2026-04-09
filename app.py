@@ -30,7 +30,6 @@ def get_market_times():
 
 def is_market_open():
     now, _, _ = get_market_times()
-    # 周一到周五，9:30 - 16:00
     return now.weekday() < 5 and (9, 30) <= (now.hour, now.minute) < (16, 0)
 
 # --- 数据获取工具函数 ---
@@ -48,8 +47,8 @@ def get_col(df, ticker, col_name):
         return df[col_name][ticker].dropna()
     return df[col_name].dropna()
 
-def calculate_pivot_points(df, ticker):
-    """计算 S1 和 R1 (基于经典 Pivot Point)"""
+def calculate_pivots_full(df, ticker):
+    """计算多层 Pivot Points (S1, S2, R1, R2)"""
     try:
         high = safe_get(df, ticker, "High").iloc[-1]
         low = safe_get(df, ticker, "Low").iloc[-1]
@@ -57,9 +56,11 @@ def calculate_pivot_points(df, ticker):
         pivot = (high + low + close) / 3
         r1 = (2 * pivot) - low
         s1 = (2 * pivot) - high
-        return round(s1, 2), round(r1, 2)
+        r2 = pivot + (high - low)
+        s2 = pivot - (high - low)
+        return round(s1, 2), round(s2, 2), round(r1, 2), round(r2, 2)
     except:
-        return 0, 0
+        return 0, 0, 0, 0
 
 # --- 核心引擎 1: Sentinel Omega (宏观环境) ---
 @st.fragment(run_every=300)
@@ -74,7 +75,6 @@ def run_omega():
     
     data_30m = yf.download(all_symbols, period="5d", interval="30m", progress=False, auto_adjust=True)
     data_5m = yf.download(all_symbols, period="1d", interval="5m", progress=False, auto_adjust=True)
-    # 获取日线级别数据用于计算 S1/R1 (前一交易日)
     data_daily = yf.download(all_symbols, period="2d", interval="1d", progress=False, auto_adjust=True)
 
     if not data_30m.empty:
@@ -106,18 +106,17 @@ def run_omega():
             macd = ta.macd(c_30); rsi = ta.rsi(c_30)
             score = (1 if curr_p > curr_vwap else 0) + (1 if macd.iloc[-1,0] > macd.iloc[-1,2] else 0) + (1 if rsi.iloc[-1] > 50 else 0)
             
-            # 计算支撑阻力 (基于前一日日线)
-            s1, r1 = calculate_pivot_points(data_daily, symbol)
+            s1, _, r1, _ = calculate_pivots_full(data_daily, symbol)
             
             sig = "🚀 强力多头" if score == 3 else "📉 空头占优" if score == 0 else "⚖️ 中性震荡"
             reports.append({
                 "标的": symbol, "名称": name, "最新价": round(curr_p, 2), 
-                "支撑 S1": s1, "阻力 R1": r1, "RSI": round(rsi.iloc[-1], 1), "诊断结论": sig
+                "关键位 (S1|R1)": f"S:{s1} | R:{r1}", 
+                "RSI": round(rsi.iloc[-1], 1), "诊断结论": sig
             })
         
         st.table(pd.DataFrame(reports))
 
-        # --- 跨资产专家情报 ---
         st.markdown("#### 🤖 Sentinel Omega 专家情报")
         notes = []
         if not dx_s.empty and len(dx_s) >= 5:
@@ -126,15 +125,15 @@ def run_omega():
         
         btc_s = [r for r in reports if "BTC-USD" in r['标的']]
         if btc_s and "🚀 强力多头" not in btc_s[0]['诊断结论']:
-            notes.append("₿ **流动性预警**：比特币走势偏弱，反映全球投机资金正在退潮，现货开盘需谨慎追高。")
+            notes.append("₿ **流动性预警**：比特币走势偏弱，反映全球投机资金正在退潮。")
             
         if v_curr > 20:
-            notes.append("🚨 **高波预警**：VIX 站上 20 分界线，任何单边行情都容易出现剧烈反转，建议收紧止盈。")
+            notes.append("🚨 **高波预警**：VIX 站上 20 分界线，建议收紧止盈。")
 
         if notes:
             for n in notes: st.info(n)
         else:
-            st.success("✅ 各资产走势联动正常，未见明显背离，建议按关键位交易。")
+            st.success("✅ 各资产走势联动正常，未见明显背离。")
 
 # --- 核心引擎 2: Sentinel V10 Pro (实战决策) ---
 @st.fragment(run_every=60)
@@ -148,16 +147,12 @@ def run_v10_pro():
     now, open_time, countdown = get_market_times()
 
     if not is_market_open():
-        # --- 休眠模式显示 ---
         st.warning(f"🌙 当前非交易时段。系统进入休眠模式。")
-        
-        # 计算倒计时显示
         hours, remainder = divmod(int(countdown.total_seconds()), 3600)
         minutes, seconds = divmod(remainder, 60)
         st.subheader(f"⏳ 距离美股开盘还有: {hours}小时 {minutes}分")
         
         st.markdown("#### 📊 前一交易日收盘概览")
-        # 获取前一天的收盘数据
         last_close_data = yf.download(all_tickers, period="2d", interval="1d", progress=False)
         if not last_close_data.empty:
             summary = []
@@ -171,8 +166,9 @@ def run_v10_pro():
             st.table(pd.DataFrame(summary))
         return
 
-    # --- 正常交易逻辑 ---
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
+    data_daily = yf.download(all_tickers, period="2d", interval="1d", progress=False, auto_adjust=True)
+    
     v10_reports = []
     vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10)
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
@@ -188,34 +184,32 @@ def run_v10_pro():
         macd = ta.macd(c_5)
         bb = ta.bbands(c_5, length=20, std=2)
         
-        score = (1 if curr_p > vwap else 0) + (1 if (not macd.empty and macd.iloc[-1,0] > macd.iloc[-1,2]) else 0)
+        s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
-        is_squeeze = False
-        if bb is not None:
-            bandwidth = (bb.iloc[-1,2] - bb.iloc[-1,0]) / bb.iloc[-1,1]
-            if bandwidth < 0.0015: is_squeeze = True
+        score = (1 if curr_p > vwap else 0) + (1 if (not macd.empty and macd.iloc[-1,0] > macd.iloc[-1,2]) else 0)
+        is_squeeze = (bb.iloc[-1,2] - bb.iloc[-1,0]) / bb.iloc[-1,1] < 0.0015 if bb is not None else False
 
         sig = "🎯 CALL (爆发)" if score == 2 and vvix_intra_slope < 0 else "📉 PUT (杀跌)" if score == 0 else "☕ 观望"
         if is_squeeze: sig += " [SQUEEZE]"
         
         v10_reports.append({
             "代码": t, "现价": round(curr_p, 2), 
+            "阻力(R1/R2)": f"{r1} | {r2}", "支撑(S1/S2)": f"{s1} | {s2}",
             "VWAP乖离": f"{((curr_p/vwap)-1):+.2%}", "期权建议": sig
         })
     
     st.dataframe(pd.DataFrame(v10_reports), use_container_width=True)
 
-    # --- Sentinel 战术诊断解读 ---
     st.markdown("#### 🤖 Sentinel 战术诊断")
     qqq_rep = next((r for r in v10_reports if r['代码'] == "QQQ"), None)
     if qqq_rep:
         if vvix_intra_slope > 0.3:
-            st.warning(f"⚠️ **风控警报**：日内波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构正在反手做空。")
+            st.warning(f"⚠️ **风控警报**：波动率斜率 ({vvix_intra_slope:.2f}) 快速转正，警惕机构买入对冲。")
         if "SQUEEZE" in qqq_rep['期权建议']:
             st.error(f"⚡ **爆发预警**：QQQ 布林带极度收紧，配合 MACD 放量即是 0DTE 进场点。")
         vwap_diff = abs(float(qqq_rep['VWAP乖离'].strip('%'))/100)
         if vwap_diff > 0.01:
-            st.info(f"🎈 **均值回归**：当前价格偏离 VWAP ({qqq_rep['VWAP乖离']})，不宜在此追高。")
+            st.info(f"🎈 **均值回归**：当前价格距离 VWAP 较远，不宜追高。")
 
 # --- 启动运行 ---
 run_omega()
