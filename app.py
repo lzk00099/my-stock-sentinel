@@ -260,190 +260,152 @@ def run_omega():
             st.success("✅ 全球宏观走势平稳，多空博弈处于平衡区间。")
 
 # --- 核心引擎 2: Sentinel V12.4 Pro ---
+# --- 核心引擎 2: Sentinel V12.4 Pro ---
 SECTOR_ETFS = {
     "XLK": "科技", "XLV": "医疗", "XLF": "金融", "XLY": "消费", 
     "XLI": "工业", "XLP": "必选", "XLE": "能源", "XLB": "材料"
 }
 INDEX_TICKERS = ["QQQ", "SPY", "IWM", "DIA"]
+
 @st.fragment(run_every=60)
 def run_v10_pro():
     st.markdown("---")
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
+    
+    # 1. 变量初始化
     targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "DIA": "道琼斯", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
-
-@st.fragment(run_every=60)
-def run_v10_pro():
-    # ... 前置代码 (get_market_times 等) ...
+    now, open_time, countdown = get_market_times()
     
-    # 统一获取看板所需数据 (增加 20 日均线所需长度)
-    all_monitor_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"] + list(SECTOR_ETFS.keys())
+    # 2. 统一获取看板所需数据 (获取 30 天日线用于计算 MA20 和共振)
+    all_monitor_tickers = list(set(all_tickers + list(SECTOR_ETFS.keys()) + INDEX_TICKERS))
     data_monitor = yf.download(all_monitor_tickers, period="30d", interval="1d", progress=False)
     
-    # --- 看板计算逻辑 ---
-    # 1. VIX & VVIX 处理
+    if data_monitor.empty:
+        st.error("无法获取宏观数据，请检查网络连接。")
+        return
+
+    # --- A. 顶部全球宏观仪表盘 (无论是否开盘均显示) ---
+    st.markdown("#### 📊 Sentinel 全球宏观仪表盘")
+    
+    # 计算 VIX & VVIX
     vix_s = data_monitor["Close"]["^VIX"].dropna()
     vvix_s = data_monitor["Close"]["^VVIX"].dropna()
-    v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
+    v_curr = vix_s.iloc[-1] if not vix_s.empty else 0.0
     
-    # VVIX 斜率 (取最近 5 日)
+    # VVIX 斜率
     vv_slope = np.polyfit(np.arange(5), vvix_s.tail(5).values, 1)[0] if len(vvix_s) >= 5 else 0
     vv_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
-    
     vix_color = "#10b981" if v_curr < 18 else "#facc15" if v_curr < 25 else "#ef4444"
     
-    # 2. 市场宽度 (8大行业站上 20MA 比例)
+    # 市场宽度 (8大行业站上 20MA 比例)
     breadth_count = 0
     for etf in SECTOR_ETFS.keys():
         prices = data_monitor["Close"][etf].dropna()
-        if len(prices) >= 20:
-            ma20 = prices.rolling(20).mean().iloc[-1]
-            if prices.iloc[-1] > ma20:
-                breadth_count += 1
+        if len(prices) >= 20 and prices.iloc[-1] > prices.rolling(20).mean().iloc[-1]:
+            breadth_count += 1
     breadth_pct = breadth_count / len(SECTOR_ETFS)
     
-    # 3. 指数共振 (QQQ, SPY, IWM, DIA 日内/短线方向)
+    # 指数共振
     up_indices = 0
     for idx in INDEX_TICKERS:
         p = data_monitor["Close"][idx].dropna()
-        if len(p) >= 2 and p.iloc[-1] > p.iloc[-2]: # 简单昨日共振逻辑
+        if len(p) >= 2 and p.iloc[-1] > p.iloc[-2]:
             up_indices += 1
     resonance_desc = "🔥 全线共振" if up_indices == 4 else "横盘分化" if up_indices >= 2 else "❄️ 普跌压制"
 
-    # --- UI 渲染部分 (非交易时段也显示) ---
-    st.markdown("### 📊 Sentinel 全球宏观仪表盘")
+    # UI 渲染
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    
     with m_col1:
         st.markdown(f"**VIX 恐慌指数**")
         st.markdown(f"<h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
-        st.caption("波动率环境评分")
-        
+        st.caption("环境评分")
     with m_col2:
         st.markdown(f"**VVIX 速率**")
         st.markdown(f"<h2 style='margin:0;'>{vvix_s.iloc[-1]:.2f}</h2>", unsafe_allow_html=True)
         st.caption(f"趋势: {vv_desc}")
-        
     with m_col3:
-        # 市场宽度进度条
         st.markdown("**市场宽度 (Sector > 20MA)**")
         st.progress(breadth_pct)
         st.caption(f"行业多头占比: {breadth_pct:.0%}")
-        
     with m_col4:
         st.markdown("**四大指数共振**")
         res_color = "#10b981" if up_indices >= 3 else "#ef4444" if up_indices <= 1 else "#facc15"
         st.markdown(f"<h3 style='color:{res_color}; margin:0;'>{resonance_desc}</h3>", unsafe_allow_html=True)
         st.caption(f"上涨指数数量: {up_indices}/4")
 
-    # --- 原始非交易/交易逻辑 ---
+    # --- B. 非交易时段逻辑 ---
     if not is_market_open():
-        st.info("🌙 市场已关闭 - 仪表盘保持实时静态分析")
-        # ... 保持你原有的倒计时和 summary table ...
+        st.warning(f"🌙 当前非交易时段。系统进入分析模式。")
+        hours, remainder = divmod(int(countdown.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        st.subheader(f"⏳ 距离美股开盘: {hours}小时 {minutes}分")
+        
+        summary = []
+        for t in targets.keys():
+            closes = data_monitor["Close"][t].dropna()
+            if len(closes) >= 2:
+                last_p, prev_p = closes.iloc[-1], closes.iloc[-2]
+                chg = (last_p / prev_p) - 1
+                summary.append({"代码": t, "名称": targets[t], "前收盘": round(last_p, 2), "涨跌幅": f"{chg:+.2%}"})
+        if summary:
+            st.table(pd.DataFrame(summary))
         return
 
-    # ... 进入交易时段逻辑 (run_v12_pro 剩余部分) ...
-    now, open_time, countdown = get_market_times()
-    if not is_market_open():
-        st.warning(f"🌙 当前非交易时段。系统进入休眠模式。")
-        hours, remainder = divmod(int(countdown.total_seconds()), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        st.subheader(f"⏳ 距离美股开盘还有: {hours}小时 {minutes}分")
-        last_close_data = yf.download(all_tickers, period="2d", interval="1d", progress=False)
-        if not last_close_data.empty:
-            summary = []
-            for t in targets.keys():
-                closes = get_col(last_close_data, t, "Close")
-                if len(closes) >= 2:
-                    last_p = closes.iloc[-1]
-                    prev_p = closes.iloc[-2]
-                    chg = (last_p / prev_p) - 1
-                    summary.append({"代码": t, "名称": targets[t], "收盘价": round(last_p, 2), "涨跌幅": f"{chg:+.2%}"})
-            if summary:
-                st.table(pd.DataFrame(summary))
-        return
-    # 交易时段逻辑
+    # --- C. 交易时段逻辑 (run_v12_pro 核心分析) ---
+    # 获取 5 分钟线和日线
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
     data_daily = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
-    # 宏观斜率计算 (增加安全检查)
+    
+    # 宏观斜率
     tnx_5m = get_col(data_5m, "^TNX", "Close").tail(10).dropna()
     tnx_slope = np.polyfit(np.arange(len(tnx_5m)), tnx_5m.values, 1)[0] if len(tnx_5m) > 1 else 0
-    vvix_5m = get_col(data_5m, "^VVIX", "Close").tail(10).dropna()
-    vvix_intra_slope = np.polyfit(np.arange(len(vvix_5m)), vvix_5m.values, 1)[0] if len(vvix_5m) > 1 else 0
-    # VIX 标量获取 (防止 ValueError)
-    # --- 极致稳健的 VIX 获取逻辑 ---
-    vix_df = yf.download("^VIX", period="1d", progress=False)
-    vix_val = 20.0 # 默认值
-    if not vix_df.empty:
-        try:
-            # 无论 yfinance 返回的是单层还是多层索引，使用 .values.flatten() 都能拿到纯数值阵列
-            vix_raw = vix_df["Close"].values.flatten()
-            # 过滤掉 nan 并取最后一个有效值
-            vix_valid = vix_raw[~np.isnan(vix_raw)]
-            if len(vix_valid) > 0:
-                vix_val = float(vix_valid[-1])
-        except Exception:
-            vix_val = 20.0
+    vvix_intra_slope = np.polyfit(np.arange(len(vvix_s.tail(5))), vvix_s.tail(5).values, 1)[0] if not vvix_s.empty else 0
+    
+    vix_val = v_curr # 使用仪表盘已算出的值
+    
     v12_reports = []
     audit_data = []
     for t in targets.keys():
         c_5 = get_col(data_5m, t, "Close")
         v_5 = get_col(data_5m, t, "Volume")
         if c_5.empty: continue
+        
         curr_p = c_5.iloc[-1]
         vwap_series = (c_5 * v_5).cumsum() / v_5.cumsum()
         c_vwap = vwap_series.iloc[-1]
         bias = (curr_p / c_vwap) - 1
+        
         prev_close_series = get_col(data_daily, t, "Close")
         prev_c = prev_close_series.iloc[-2] if len(prev_close_series) >= 2 else curr_p
-        if curr_p > prev_c and curr_p > c_vwap:
-            structure = "🚀 强势突破"
-        elif curr_p > c_vwap:
-            structure = "🩹 超跌反弹"
-        else:
-            structure = "📉 弱势运行"
+        
+        # 结构判定
+        structure = "🚀 强势突破" if curr_p > prev_c and curr_p > c_vwap else "🩹 超跌反弹" if curr_p > c_vwap else "📉 弱势运行"
+        
         # 量价背离分析
-        tail_data = c_5.tail(5).dropna()
-        vol_tail = v_5.tail(5).dropna()
-        if len(tail_data) >= 2 and len(vol_tail) >= 2:
-            p_slope = np.polyfit(np.arange(len(tail_data)), tail_data.values, 1)[0]
-            vol_slope = np.polyfit(np.arange(len(vol_tail)), vol_tail.values, 1)[0]
-            is_div = p_slope > 0 and vol_slope < 0
-        else:
-            is_div = False
+        tail_data, vol_tail = c_5.tail(5).dropna(), v_5.tail(5).dropna()
+        is_div = (np.polyfit(np.arange(len(tail_data)), tail_data.values, 1)[0] > 0 and 
+                  np.polyfit(np.arange(len(vol_tail)), vol_tail.values, 1)[0] < 0) if len(tail_data) >= 2 else False
+        
         poc, call_wall, put_wall = get_market_structure(t, data_5m)
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
-        # Squeeze 变盘判定
-        is_sqz = False
-        try:
-            bb = ta.bbands(c_5, length=20, std=2)
-            high_col = get_col(data_5m, t, "High")
-            low_col = get_col(data_5m, t, "Low")
-            kc = ta.kc(high_col, low_col, c_5, length=20)
-            if bb is not None and kc is not None:
-                is_sqz = (bb.iloc[-1, 2] - bb.iloc[-1, 0]) < (kc.iloc[-1, 2] - kc.iloc[-1, 0])
-        except: pass
-        # 综合决策评分
+        
+        # 决策逻辑
         score = (1 if curr_p > c_vwap else 0) + (1 if curr_p > poc and poc != 0 else 0) + (1 if vvix_intra_slope < 0 else 0)
-        if is_div and curr_p > c_vwap:
-            decision = "🚫 <b style='color:#ef4444;'>诱多 (背离)</b>"
-        elif score >= 3:
-            decision = "🎯 <b style='color:#10b981;'>CALL (爆发)</b>"
-        elif is_sqz:
-            decision = "⚡ <b style='color:#a855f7;'>SQUEEZE</b>"
-        else:
-            decision = "☕ 观望"
+        decision = "🚫 <b style='color:#ef4444;'>诱多 (背离)</b>" if is_div and curr_p > c_vwap else \
+                   "🎯 <b style='color:#10b981;'>CALL (爆发)</b>" if score >= 3 else "☕ 观望"
+        
         v12_reports.append({
             "代码": t, "现价": round(curr_p, 2), "结构": structure, "VWAP乖离": f"{bias:+.2%}",
             "量价": "⚠️背离" if is_div else "✅同步", "POC(引力)": poc,
             "期权墙(C|P)": f"{call_wall} | {put_wall}" if call_wall != 0 else "N/A",
             "支撑 S1/S2": f"{s1} / {s2}", "阻力 R1/R2": f"{r1} / {r2}", "决策": decision
         })
-        audit_data.append({
-            "code": t, "curr_p": curr_p, "poc": poc, "cw": call_wall, "pw": put_wall, 
-            "is_sqz": is_sqz, "prev_c": prev_c, "r1": r1, "s1": s1, "decision": decision, "structure": structure
-        })
+        audit_data.append({"code": t, "curr_p": curr_p, "poc": poc, "cw": call_wall, "pw": put_wall, "r1": r1, "s1": s1, "decision": decision, "structure": structure, "prev_c": prev_c})
+
     st.write(pd.DataFrame(v12_reports).to_html(escape=False, index=False), unsafe_allow_html=True)
+    
+    # 战术审计报告
     st.markdown("#### 🤖 Sentinel 战术全维度审计 (Hybrid Pro)")
     for a in audit_data:
         with st.expander(f"查看 {a['code']} 深度审计报告", expanded=True):
