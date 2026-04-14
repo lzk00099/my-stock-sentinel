@@ -288,47 +288,12 @@ def run_v10_pro():
         st.error("无法获取宏观数据")
         return
 
-    # --- A. 顶部全球宏观仪表盘 (无论是否开盘均显示) ---
-    st.markdown("#### 📊 Sentinel 全球宏观仪表盘")
-    
-    # 计算 VIX & VVIX
-    vix_s = data_monitor["Close"]["^VIX"].dropna()
-    vvix_s = data_monitor["Close"]["^VVIX"].dropna()
-    v_curr = float(vix_s.iloc[-1]) if not vix_s.empty else 20.0
-    
-    # VVIX 斜率
-    vv_slope = np.polyfit(np.arange(5), vvix_s.tail(5).values, 1)[0] if len(vvix_s) >= 5 else 0
-    vv_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
-    vix_color = "#10b981" if v_curr < 18 else "#facc15" if v_curr < 25 else "#ef4444"
-    
-    # 宽度与共振计算
-    breadth_count = sum(1 for etf in SECTOR_ETFS.keys() if data_monitor["Close"][etf].iloc[-1] > data_monitor["Close"][etf].rolling(20).mean().iloc[-1])
-    breadth_pct = breadth_count / len(SECTOR_ETFS)
-    
-    # 指数共振
-    up_indices = sum(1 for idx in INDEX_TICKERS if data_monitor["Close"][idx].iloc[-1] > data_monitor["Close"][idx].iloc[-2])
-
-# UI 渲染 (仪表盘)
-    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    with m_col1:
-        v_color = "#10b981" if v_curr < 18 else "#ef4444"
-        st.markdown(f"**VIX 恐慌指数**\n<h2 style='color:{v_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
-    with m_col2:
-        vv_val = vvix_s.iloc[-1] if not vvix_s.empty else 0
-        st.markdown(f"**VVIX 速率**\n<h2 style='margin:0;'>{vv_val:.2f}</h2>", unsafe_allow_html=True)
-    with m_col3:
-        st.markdown("**市场宽度**")
-        st.progress(breadth_pct)
-    with m_col4:
-        res_color = "#10b981" if up_indices >= 3 else "#facc15"
-        st.markdown(f"**共振状态**\n<h3 style='color:{res_color}; margin:0;'>{up_indices}/4 指数上涨</h3>", unsafe_allow_html=True)
-
-    # --- B. 非交易时段逻辑分流 ---
+# --- A. 时间逻辑判定 ---
     now, open_time, countdown = get_market_times()
     
     if not is_market_open():
+        # --- 非交易时段：仅显示倒计时和总结，不显示仪表盘 ---
         st.warning(f"🌙 非交易时段。倒计时: {int(countdown.total_seconds()//3600)}h {int((countdown.total_seconds()%3600)//60)}m")
-        # 显示前日总结
         summary = []
         for t, name in targets.items():
             closes = data_monitor["Close"][t].dropna()
@@ -337,18 +302,32 @@ def run_v10_pro():
                 summary.append({"代码": t, "名称": name, "收盘价": round(closes.iloc[-1], 2), "涨跌幅": f"{chg:+.2%}"})
         st.table(pd.DataFrame(summary))
         return
+        
+# --- B. 交易时段逻辑 (仪表盘与核心分析) ---
+    
+    # 1. 计算宽度与共振 (原逻辑正常，予以保留)
+    breadth_count = sum(1 for etf in SECTOR_ETFS.keys() if data_monitor["Close"][etf].iloc[-1] > data_monitor["Close"][etf].rolling(20).mean().iloc[-1])
+    breadth_pct = breadth_count / len(SECTOR_ETFS)
+    up_indices = sum(1 for idx in INDEX_TICKERS if data_monitor["Close"][idx].iloc[-1] > data_monitor["Close"][idx].iloc[-2])
 
-    # --- C. 交易时段逻辑 (run_v12_pro 核心分析) ---
-    # 获取 5 分钟线和日线
+    # 2. 渲染仪表盘 (仅显示宽度和共振)
+    st.markdown("#### 📊 市场实时状态")
+    m_col1, m_col2 = st.columns(2)
+    with m_col1:
+        st.markdown(f"**市场宽度 (20MA上方板块)**")
+        st.progress(breadth_pct)
+    with m_col2:
+        res_color = "#10b981" if up_indices >= 3 else "#facc15"
+        st.markdown(f"**指数共振状态**\n<h3 style='color:{res_color}; margin:0;'>{up_indices}/4 指数上涨</h3>", unsafe_allow_html=True)
+
+    # 3. 核心数据获取与分析 (5分钟线)
     data_5m = yf.download(all_tickers, period="5d", interval="5m", progress=False, auto_adjust=True)
     data_daily = yf.download(all_tickers, period="5d", interval="1d", progress=False, auto_adjust=True)
     
-    # 宏观斜率
-    tnx_5m = get_col(data_5m, "^TNX", "Close").tail(10).dropna()
-    tnx_slope = np.polyfit(np.arange(len(tnx_5m)), tnx_5m.values, 1)[0] if len(tnx_5m) > 1 else 0
+    # 获取内部变量用于后续审计逻辑
+    vix_val = float(data_monitor["Close"]["^VIX"].iloc[-1]) if "^VIX" in data_monitor["Close"] else 20.0
+    vvix_s = data_monitor["Close"]["^VVIX"].dropna()
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_s.tail(5))), vvix_s.tail(5).values, 1)[0] if not vvix_s.empty else 0
-    
-    vix_val = v_curr # 使用仪表盘已算出的值
     
     v12_reports = []
     audit_data = []
