@@ -319,8 +319,11 @@ def run_v10_pro():
 
     # --- B. 非交易时段逻辑分流 ---
     now, open_time, countdown = get_market_times()
-    if not is_market_open():
-        st.warning(f"🌙 非交易时段。倒计时: {int(countdown.total_seconds()//3600)}h {int((countdown.total_seconds()%3600)//60)}m")
+    # 临时改为 True 进行强制渲染测试
+    if True: # 而不是 if not is_market_open():
+        st.write("强制进入交易逻辑测试...")
+    #if not is_market_open():
+        #st.warning(f"🌙 非交易时段。倒计时: {int(countdown.total_seconds()//3600)}h {int((countdown.total_seconds()%3600)//60)}m")
         # 显示前日总结
         summary = []
         for t, name in targets.items():
