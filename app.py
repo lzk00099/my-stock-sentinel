@@ -328,7 +328,7 @@ def run_v10_pro():
     vvix_s = data_monitor["Close"]["^VVIX"].dropna()
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_s.tail(5))), vvix_s.tail(5).values, 1)[0] if not vvix_s.empty else 0
     
-v12_reports = []
+    v12_reports = []
     audit_data = []
     
     for t in targets.keys():
