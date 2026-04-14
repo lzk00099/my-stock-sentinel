@@ -481,11 +481,12 @@ def run_frontier_radar():
         hide_index=True
     )
 
+# 5. 快速诊断结论 
     top_1 = df.iloc[0]['代码']
-    st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。
-    
-# --- 启动运行 ---
+    st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。")
+
+# --- 修改后的启动入口 ---
 run_omega()
 run_v10_pro()
-run_v7_sector()      
-run_frontier_radar() 
+run_v7_sector()      # 启动引擎 3
+run_frontier_radar()  # 启动引擎 4
