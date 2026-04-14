@@ -328,24 +328,38 @@ def run_v10_pro():
     vvix_s = data_monitor["Close"]["^VVIX"].dropna()
     vvix_intra_slope = np.polyfit(np.arange(len(vvix_s.tail(5))), vvix_s.tail(5).values, 1)[0] if not vvix_s.empty else 0
     
-    v12_reports = []
+v12_reports = []
     audit_data = []
+    
     for t in targets.keys():
+        # --- 1. 获取基础价格数据 ---
         c_5 = get_col(data_5m, t, "Close")
         v_5 = get_col(data_5m, t, "Volume")
-        if c_5.empty: continue
-        df_daily = data_daily[t] if isinstance(data_daily.columns, pd.MultiIndex) else data_daily
-        if len(prev_close_series) >= 5:
-            std = prev_close_series.tail(5).std()
-            is_sqz = std < (prev_close_series.tail(20).std() * 0.8) if len(prev_close_series) >= 20 else False
-        else:
-            is_sqz = False
+        
+        # 必须先获取日线序列，因为后续 structure 和 is_sqz 都要用到
+        prev_close_series = get_col(data_daily, t, "Close").dropna()
+        
+        if c_5.empty or prev_close_series.empty: 
+            continue
+
         curr_p = c_5.iloc[-1]
+        
+        # --- 2. 计算挤压逻辑 (is_sqz) ---
+        # 移除了会导致报错的 df_daily = data_daily[t] 这一行
+        is_sqz = False
+        if len(prev_close_series) >= 5:
+            std_short = prev_close_series.tail(5).std()
+            # 这里的 20 是为了对比短期波动是否极度萎缩
+            if len(prev_close_series) >= 20:
+                std_long = prev_close_series.tail(20).std()
+                is_sqz = std_short < (std_long * 0.8)
+        
+        # --- 3. 指标计算 ---
         vwap_series = (c_5 * v_5).cumsum() / v_5.cumsum()
         c_vwap = vwap_series.iloc[-1]
         bias = (curr_p / c_vwap) - 1
         
-        prev_close_series = get_col(data_daily, t, "Close")
+        # 获取昨日收盘价
         prev_c = prev_close_series.iloc[-2] if len(prev_close_series) >= 2 else curr_p
         
         # 结构判定
@@ -356,20 +370,25 @@ def run_v10_pro():
         is_div = (np.polyfit(np.arange(len(tail_data)), tail_data.values, 1)[0] > 0 and 
                   np.polyfit(np.arange(len(vol_tail)), vol_tail.values, 1)[0] < 0) if len(tail_data) >= 2 else False
         
+        # 获取市场结构（POC、期权墙）
         poc, call_wall, put_wall = get_market_structure(t, data_5m)
         s1, s2, r1, r2 = calculate_pivots_full(data_daily, t)
         
-        # 决策逻辑
+        # --- 4. 决策逻辑 ---
+        # score 计算包含: 站上VWAP, 站上POC, VVIX降温
         score = (1 if curr_p > c_vwap else 0) + (1 if curr_p > poc and poc != 0 else 0) + (1 if vvix_intra_slope < 0 else 0)
+        
         decision = "🚫 <b style='color:#ef4444;'>诱多 (背离)</b>" if is_div and curr_p > c_vwap else \
                    "🎯 <b style='color:#10b981;'>CALL (爆发)</b>" if score >= 3 else "☕ 观望"
         
+        # --- 5. 填充报告 ---
         v12_reports.append({
             "代码": t, "现价": round(curr_p, 2), "结构": structure, "VWAP乖离": f"{bias:+.2%}",
             "量价": "⚠️背离" if is_div else "✅同步", "POC(引力)": poc,
             "期权墙(C|P)": f"{call_wall} | {put_wall}" if call_wall != 0 else "N/A",
             "支撑 S1/S2": f"{s1} / {s2}", "阻力 R1/R2": f"{r1} / {r2}", "决策": decision
         })
+        
         audit_data.append({
             "code": t, 
             "curr_p": curr_p, 
@@ -381,7 +400,7 @@ def run_v10_pro():
             "decision": decision, 
             "structure": structure, 
             "prev_c": prev_c,
-            "is_sqz": is_sqz  # <--- 必须添加这一行，否则后面循环会报错
+            "is_sqz": is_sqz
         })
 
     st.write(pd.DataFrame(v12_reports).to_html(escape=False, index=False), unsafe_allow_html=True)
