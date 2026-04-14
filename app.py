@@ -334,7 +334,12 @@ def run_v10_pro():
         c_5 = get_col(data_5m, t, "Close")
         v_5 = get_col(data_5m, t, "Volume")
         if c_5.empty: continue
-        
+        df_daily = data_daily[t] if isinstance(data_daily.columns, pd.MultiIndex) else data_daily
+        if len(prev_close_series) >= 5:
+            std = prev_close_series.tail(5).std()
+            is_sqz = std < (prev_close_series.tail(20).std() * 0.8) if len(prev_close_series) >= 20 else False
+        else:
+            is_sqz = False
         curr_p = c_5.iloc[-1]
         vwap_series = (c_5 * v_5).cumsum() / v_5.cumsum()
         c_vwap = vwap_series.iloc[-1]
@@ -365,7 +370,19 @@ def run_v10_pro():
             "期权墙(C|P)": f"{call_wall} | {put_wall}" if call_wall != 0 else "N/A",
             "支撑 S1/S2": f"{s1} / {s2}", "阻力 R1/R2": f"{r1} / {r2}", "决策": decision
         })
-        audit_data.append({"code": t, "curr_p": curr_p, "poc": poc, "cw": call_wall, "pw": put_wall, "r1": r1, "s1": s1, "decision": decision, "structure": structure, "prev_c": prev_c})
+        audit_data.append({
+            "code": t, 
+            "curr_p": curr_p, 
+            "poc": poc, 
+            "cw": call_wall, 
+            "pw": put_wall, 
+            "r1": r1, 
+            "s1": s1, 
+            "decision": decision, 
+            "structure": structure, 
+            "prev_c": prev_c,
+            "is_sqz": is_sqz  # <--- 必须添加这一行，否则后面循环会报错
+        })
 
     st.write(pd.DataFrame(v12_reports).to_html(escape=False, index=False), unsafe_allow_html=True)
     
