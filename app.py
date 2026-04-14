@@ -260,7 +260,6 @@ def run_omega():
             st.success("✅ 全球宏观走势平稳，多空博弈处于平衡区间。")
 
 # --- 核心引擎 2: Sentinel V12.4 Pro ---
-# --- 核心引擎 2: Sentinel V12.4 Pro ---
 SECTOR_ETFS = {
     "XLK": "科技", "XLV": "医疗", "XLF": "金融", "XLY": "消费", 
     "XLI": "工业", "XLP": "必选", "XLE": "能源", "XLB": "材料"
@@ -272,17 +271,15 @@ def run_v10_pro():
     st.markdown("---")
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     
-    # 1. 变量初始化
+# 1. 基础数据准备
     targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "DIA": "道琼斯", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
-    now, open_time, countdown = get_market_times()
-    
-    # 2. 统一获取看板所需数据 (获取 30 天日线用于计算 MA20 和共振)
     all_monitor_tickers = list(set(all_tickers + list(SECTOR_ETFS.keys()) + INDEX_TICKERS))
-    data_monitor = yf.download(all_monitor_tickers, period="30d", interval="1d", progress=False)
     
+    # 统一获取 30 天日线数据
+    data_monitor = yf.download(all_monitor_tickers, period="30d", interval="1d", progress=False)
     if data_monitor.empty:
-        st.error("无法获取宏观数据，请检查网络连接。")
+        st.error("无法获取宏观数据")
         return
 
     # --- A. 顶部全球宏观仪表盘 (无论是否开盘均显示) ---
@@ -291,65 +288,47 @@ def run_v10_pro():
     # 计算 VIX & VVIX
     vix_s = data_monitor["Close"]["^VIX"].dropna()
     vvix_s = data_monitor["Close"]["^VVIX"].dropna()
-    v_curr = vix_s.iloc[-1] if not vix_s.empty else 0.0
+    v_curr = float(vix_s.iloc[-1]) if not vix_s.empty else 20.0
     
     # VVIX 斜率
     vv_slope = np.polyfit(np.arange(5), vvix_s.tail(5).values, 1)[0] if len(vvix_s) >= 5 else 0
     vv_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
     vix_color = "#10b981" if v_curr < 18 else "#facc15" if v_curr < 25 else "#ef4444"
     
-    # 市场宽度 (8大行业站上 20MA 比例)
-    breadth_count = 0
-    for etf in SECTOR_ETFS.keys():
-        prices = data_monitor["Close"][etf].dropna()
-        if len(prices) >= 20 and prices.iloc[-1] > prices.rolling(20).mean().iloc[-1]:
-            breadth_count += 1
+    # 宽度与共振计算
+    breadth_count = sum(1 for etf in SECTOR_ETFS.keys() if data_monitor["Close"][etf].iloc[-1] > data_monitor["Close"][etf].rolling(20).mean().iloc[-1])
     breadth_pct = breadth_count / len(SECTOR_ETFS)
     
     # 指数共振
-    up_indices = 0
-    for idx in INDEX_TICKERS:
-        p = data_monitor["Close"][idx].dropna()
-        if len(p) >= 2 and p.iloc[-1] > p.iloc[-2]:
-            up_indices += 1
-    resonance_desc = "🔥 全线共振" if up_indices == 4 else "横盘分化" if up_indices >= 2 else "❄️ 普跌压制"
+    up_indices = sum(1 for idx in INDEX_TICKERS if data_monitor["Close"][idx].iloc[-1] > data_monitor["Close"][idx].iloc[-2])
 
-    # UI 渲染
+# UI 渲染 (仪表盘)
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     with m_col1:
-        st.markdown(f"**VIX 恐慌指数**")
-        st.markdown(f"<h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
-        st.caption("环境评分")
+        v_color = "#10b981" if v_curr < 18 else "#ef4444"
+        st.markdown(f"**VIX 恐慌指数**\n<h2 style='color:{v_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
     with m_col2:
-        st.markdown(f"**VVIX 速率**")
-        st.markdown(f"<h2 style='margin:0;'>{vvix_s.iloc[-1]:.2f}</h2>", unsafe_allow_html=True)
-        st.caption(f"趋势: {vv_desc}")
+        vv_val = vvix_s.iloc[-1] if not vvix_s.empty else 0
+        st.markdown(f"**VVIX 速率**\n<h2 style='margin:0;'>{vv_val:.2f}</h2>", unsafe_allow_html=True)
     with m_col3:
-        st.markdown("**市场宽度 (Sector > 20MA)**")
+        st.markdown("**市场宽度**")
         st.progress(breadth_pct)
-        st.caption(f"行业多头占比: {breadth_pct:.0%}")
     with m_col4:
-        st.markdown("**四大指数共振**")
-        res_color = "#10b981" if up_indices >= 3 else "#ef4444" if up_indices <= 1 else "#facc15"
-        st.markdown(f"<h3 style='color:{res_color}; margin:0;'>{resonance_desc}</h3>", unsafe_allow_html=True)
-        st.caption(f"上涨指数数量: {up_indices}/4")
+        res_color = "#10b981" if up_indices >= 3 else "#facc15"
+        st.markdown(f"**共振状态**\n<h3 style='color:{res_color}; margin:0;'>{up_indices}/4 指数上涨</h3>", unsafe_allow_html=True)
 
-    # --- B. 非交易时段逻辑 ---
+    # --- B. 非交易时段逻辑分流 ---
+    now, open_time, countdown = get_market_times()
     if not is_market_open():
-        st.warning(f"🌙 当前非交易时段。系统进入分析模式。")
-        hours, remainder = divmod(int(countdown.total_seconds()), 3600)
-        minutes, _ = divmod(remainder, 60)
-        st.subheader(f"⏳ 距离美股开盘: {hours}小时 {minutes}分")
-        
+        st.warning(f"🌙 非交易时段。倒计时: {int(countdown.total_seconds()//3600)}h {int((countdown.total_seconds()%3600)//60)}m")
+        # 显示前日总结
         summary = []
-        for t in targets.keys():
+        for t, name in targets.items():
             closes = data_monitor["Close"][t].dropna()
             if len(closes) >= 2:
-                last_p, prev_p = closes.iloc[-1], closes.iloc[-2]
-                chg = (last_p / prev_p) - 1
-                summary.append({"代码": t, "名称": targets[t], "前收盘": round(last_p, 2), "涨跌幅": f"{chg:+.2%}"})
-        if summary:
-            st.table(pd.DataFrame(summary))
+                chg = (closes.iloc[-1] / closes.iloc[-2]) - 1
+                summary.append({"代码": t, "名称": name, "收盘价": round(closes.iloc[-1], 2), "涨跌幅": f"{chg:+.2%}"})
+        st.table(pd.DataFrame(summary))
         return
 
     # --- C. 交易时段逻辑 (run_v12_pro 核心分析) ---
