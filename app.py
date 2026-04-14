@@ -528,7 +528,6 @@ def run_frontier_radar():
     st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。")
 
 # --- 启动运行 ---
-yf.download.cache_clear()
 run_omega()  
 run_v10_pro()
 run_v7_sector()
