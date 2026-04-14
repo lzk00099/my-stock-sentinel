@@ -176,42 +176,48 @@ def run_omega():
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
         
         # 渲染顶层指标
-# --- 修复后的渲染部分 ---
+# --- 统一渲染顶层指标 ---
         col1, col2, col3, col4 = st.columns(4)
         
+        # 统一的卡片样式定义
+        def get_metric_html(label, value, subtext, color="#ffffff", bg_opacity="11"):
+            return f"""
+            <div style="
+                background-color: {color}{bg_opacity}; 
+                padding: 15px; 
+                border-radius: 10px; 
+                border-left: 5px solid {color};
+                height: 110px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                ">
+                <p style='margin:0; font-size: 0.9rem; color: #a1a1aa; font-weight: 500;'>{label}</p>
+                <h2 style='margin:0; color:{color}; font-size: 1.8rem; line-height: 1.2;'>{value}</h2>
+                <p style='margin:0; font-size: 0.8rem; color: #d4d4d8; opacity: 0.8;'>{subtext}</p>
+            </div>
+            """
+
         with col1:
-            # 使用 container 保证样式隔离
-            st.markdown(f"**VIX 指数**")
-            # 这里的 color 样式一定要确保 v_curr 变化时重新生成
-            st.markdown(
-                f"""<div style="background-color: {vix_color}22; padding: 5px; border-radius: 5px;">
-                    <h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>
-                </div>""", 
-                unsafe_allow_html=True
-            )
-            st.caption(f"{vix_rank}")
+            st.markdown(get_metric_html("VIX 指数", f"{v_curr:.2f}", vix_rank, vix_color, "22"), unsafe_allow_html=True)
             
         with col2:
-            st.metric("10Y 美债收益率", f"{t_curr:.2f}%")
+            # 10Y 美债通常为蓝色调
+            st.markdown(get_metric_html("10Y 美债收益率", f"{t_curr:.2f}%", "基准利率参考", "#3b82f6"), unsafe_allow_html=True)
             
         with col3:
-            st.markdown("**VVIX 指数**")
-            # 1. 增加异常值处理：如果获取到的是 NaN 或 0，给出提示
-            if vv_curr > 0:
-                # 2. 尝试使用 st.metric 作为 fallback，如果 markdown 依然失效
-                # 先用 HTML 渲染大字
-                st.markdown(f"<h2 style='margin:0; color:#ffffff;'>{vv_curr:.2f}</h2>", unsafe_allow_html=True)
-            else:
-                # 如果数据源没拿到数，显示 N/A
-                st.markdown("<h2 style='margin:0; color:gray;'>N/A</h2>", unsafe_allow_html=True)
-            
-            st.caption(f"趋势: {slope_desc}")
+            # VVIX 数值及趋势
+            vv_display = f"{vv_curr:.2f}" if vv_curr > 0 else "N/A"
+            st.markdown(get_metric_html("VVIX 指数", vv_display, f"趋势: {slope_desc}", "#a855f7"), unsafe_allow_html=True)
             
         with col4:
-            # 风险偏好建议使用带有颜色的 markdown 而非简单的 metric
+            # 风险偏好总评
             pref_color = "#ef4444" if "🔴" in risk_status else "#10b981"
-            st.markdown(f"**风险偏好总评**")
-            st.markdown(f"<span style='color:{pref_color}; font-weight:bold;'>{risk_status}</span>", unsafe_allow_html=True)
+            # 去掉前缀表情符号显示在标题，内容仅留文字
+            status_text = risk_status.replace("🔴 ", "").replace("🟢 ", "")
+            st.markdown(get_metric_html("风险偏好总评", status_text, "Sentinel 系统建议", pref_color), unsafe_allow_html=True)
+
+        st.write("") # 增加一点间距
 
         # --- 资产诊断报告 (保持原有逻辑) ---
         reports = []
