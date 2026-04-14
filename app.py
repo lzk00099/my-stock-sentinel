@@ -176,7 +176,6 @@ def run_omega():
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
         
         # 渲染顶层指标
-# --- 统一渲染顶层指标 ---
         col1, col2, col3, col4 = st.columns(4)
         
         # 统一的卡片样式定义
