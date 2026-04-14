@@ -129,7 +129,7 @@ def get_market_structure(ticker_str, df_5m):
     
     return poc, call_wall, put_wall
 
-# --- 核心引擎 1: Sentinel Omega ---
+# --- 核心引擎 1: Sentinel Omega (视觉增强版) ---
 @st.fragment(run_every=300)
 def run_omega():
     st.markdown("### 🌌 Sentinel Omega V3.2 | 全球全资产全景监控")
@@ -151,37 +151,60 @@ def run_omega():
         dx_s = safe_get(data_30m, "DX-Y.NYB", "Close")
         
         v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
+        vv_curr = vvix_s.iloc[-1] if not vvix_s.empty else 0
         t_curr = tnx_s.iloc[-1] if not tnx_s.empty else 0
         
+        # 计算 VVIX 斜率
         vvix_clean = vvix_s.tail(10).dropna()
         vv_slope = np.polyfit(np.arange(len(vvix_clean)), vvix_clean.values, 1)[0] if len(vvix_clean) > 1 else 0
+        slope_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
+        
+        # VIX 颜色与评级逻辑
+        if v_curr < 15:
+            vix_color, vix_rank = "#10b981", "【安全 · 忽略尾部风险】" # 绿色
+        elif v_curr < 20:
+            vix_color, vix_rank = "#facc15", "【防守 · 波动率回归中】" # 黄色
+        elif v_curr < 28:
+            vix_color, vix_rank = "#fb923c", "【警惕 · 市场对冲升温】" # 橙色
+        else:
+            vix_color, vix_rank = "#ef4444", "【恐慌 · 极端情绪爆发】" # 红色
         
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
         
+        # 渲染顶层指标
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("VIX 指数", f"{v_curr:.2f}")
-        col2.metric("10Y 美债", f"{t_curr:.2f}%")
-        col3.metric("情绪斜率", "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温")
-        col4.metric("当前总评", risk_status)
+        
+        with col1:
+            st.markdown(f"**VIX 指数**")
+            st.markdown(f"<h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
+            st.caption(f"{vix_rank}")
+            
+        with col2:
+            st.metric("10Y 美债收益率", f"{t_curr:.2f}%")
+            
+        with col3:
+            st.markdown(f"**VVIX 指数**")
+            st.markdown(f"<h2 style='margin:0;'>{vv_curr:.2f}</h2>", unsafe_allow_html=True)
+            st.caption(f"趋势: ({slope_desc})")
+            
+        with col4:
+            st.metric("风险偏好总评", risk_status)
 
+        # --- 资产诊断报告 (保持原有逻辑) ---
         reports = []
         for symbol, name in assets.items():
             c_30, c_5, v_5 = safe_get(data_30m, symbol, "Close"), safe_get(data_5m, symbol, "Close"), safe_get(data_5m, symbol, "Volume")
             if len(c_30) < 20 or c_5.empty: continue
             
             curr_p = c_5.iloc[-1]
-            # 计算时确保没有 NaN
-            valid_v5 = v_5.replace(0, np.nan).fillna(1)
             curr_vwap = (c_5 * v_5).cumsum() / v_5.cumsum()
             curr_vwap_val = curr_vwap.iloc[-1] if not curr_vwap.empty else c_5.mean()
             
             macd = ta.macd(c_30)
             rsi = ta.rsi(c_30)
-            
             if macd is None or rsi is None or rsi.empty: continue
             
             score = (1 if curr_p > curr_vwap_val else 0) + (1 if macd.iloc[-1,0] > macd.iloc[-1,2] else 0) + (1 if rsi.iloc[-1] > 50 else 0)
-            
             s1, _, r1, _ = calculate_pivots_full(data_daily, symbol)
             sig = "🚀 强力多头" if score == 3 else "📉 空头占优" if score == 0 else "⚖️ 中性震荡"
             
@@ -194,23 +217,24 @@ def run_omega():
         if reports:
             st.table(pd.DataFrame(reports))
 
+        # --- 专家情报 ---
         st.markdown("#### 🤖 Sentinel Omega 专家情报")
         notes = []
         if not dx_s.empty and len(dx_s) >= 5:
             if dx_s.iloc[-1] > dx_s.iloc[-5]:
-                notes.append("💵 **美元压制**：美元指数日内走强，通常对纳指期指（NQ）构成估值天花板。")
+                notes.append("💵 **美元压制**：美元指数日内走强，对风险资产构成估值压力。")
         
         btc_s = [r for r in reports if "BTC-USD" in r['标的']]
         if btc_s and "🚀 强力多头" not in btc_s[0]['诊断结论']:
-            notes.append("₿ **流动性预警**：比特币走势偏弱，反映全球投机资金正在退潮。")
+            notes.append("₿ **流动性预警**：比特币动能不足，暗示场内投机资金相对谨慎。")
             
         if v_curr > 20:
-            notes.append("🚨 **高波预警**：VIX 站上 20 分界线，建议收紧止盈。")
+            notes.append(f"🚨 **中高波环境**：VIX 处于 {v_curr:.2f}，此时操作应严格执行止损计划。")
 
         if notes:
             for n in notes: st.info(n)
         else:
-            st.success("✅ 各资产走势联动正常，未见明显背离。")
+            st.success("✅ 全球宏观走势平稳，多空博弈处于平衡区间。")
 
 # --- 核心引擎 2: Sentinel V12.4 Pro ---
 @st.fragment(run_every=60)
