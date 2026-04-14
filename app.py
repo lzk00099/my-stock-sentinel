@@ -363,6 +363,129 @@ def run_v10_pro():
             if vix_val > 30 and "CALL" in a['decision']:
                 st.warning(f"🎭 **策略对冲**：当前 VIX ({vix_val:.2f}) 极高，建议使用 Spread (价差) 代替单腿买入。")
 
+# --- 核心引擎 3: Sentinel V7.2 全维强度看板 ---
+@st.fragment(run_every=600)
+def run_v7_sector():
+    st.markdown("---")
+    st.markdown("### 🏛️ Sentinel V7.2 全维强度看板")
+    
+    sector_clusters = {
+        "核能能源": "URA", "太空航天": "ITA", "AI半导体": "SMH",
+        "半导体设备": "SOXX", "加密金融": "BITO", "电力基建": "XLU",
+        "软件SaaS": "IGV", "生物医药": "IBB", "传统银行": "KBE",
+        "石油能源": "XLE", "黄金避险": "GLD", "中概互联": "KWEB",
+        "网络安全": "CIBR", "机器人自动化": "BOTZ", "工业制造": "XLI",
+        "基础材料": "XLB", "零售消费": "XRT", "区域银行": "KRE",
+        "房地产": "XLRE", "铜矿资源": "COPX", "白银实物": "SLV",
+        "稀土战略": "REMX", "必需消费": "XLP", "电信媒体": "XLC",
+        "旅游博彩": "PEJ", "清洁能源": "ICLN", "清洁能源科技": "QCLN",
+        "医疗保健": "XLV"
+    }
+    
+    leveraged_keywords = ['SOXL', 'SOXS', 'TQQQ', 'SQQQ', 'LABU', 'LABD', 'FAS', 'FAZ', 'AGQ', 'ZSL']
+    all_tickers = list(sector_clusters.values())
+    
+    data_daily = yf.download(all_tickers, period="60d", interval="1d", progress=False, auto_adjust=True)
+    if data_daily.empty:
+        st.error("❌ 引擎 3 信号中断")
+        return
+
+    close_df = data_daily['Close']
+    sector_results = []
+    
+    for name, ticker in sector_clusters.items():
+        if ticker in leveraged_keywords: continue
+        try:
+            series = close_df[ticker].dropna()
+            if len(series) < 22: continue
+            
+            day_ret = (series.iloc[-1] / series.iloc[-2]) - 1
+            month_ret = (series.iloc[-1] / series.iloc[-21]) - 1
+            
+            sector_results.append({
+                "赛道": f"{name} ({ticker})",
+                "今日涨跌": day_ret,
+                "当月涨跌": month_ret
+            })
+        except: continue
+
+    df_all = pd.DataFrame(sector_results)
+    
+    def format_v7_table(df, col):
+        # 转换百分比并添加颜色
+        styled_df = df[['赛道', col]].copy()
+        styled_df[col] = styled_df[col].apply(lambda x: f"<span style='color:{'#2ecc71' if x>0 else '#e74c3c'}; font-weight:bold;'>{x:+.2%}</span>")
+        return styled_df.to_html(escape=False, index=False)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**🔥 今日领涨 Top 5**")
+        st.write(format_v7_table(df_all.nlargest(5, '今日涨跌'), '今日涨跌'), unsafe_allow_html=True)
+        st.markdown("**🏆 月度最强 Top 5**")
+        st.write(format_v7_table(df_all.nlargest(5, '当月涨跌'), '当月涨跌'), unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown("**❄️ 今日领跌 Top 5**")
+        st.write(format_v7_table(df_all.nsmallest(5, '今日涨跌'), '今日涨跌'), unsafe_allow_html=True)
+        st.markdown("**📉 月度最弱 Top 5**")
+        st.write(format_v7_table(df_all.nsmallest(5, '当月涨跌'), '当月涨跌'), unsafe_allow_html=True)
+
+# --- 核心引擎 4: Sentinel 前沿科技雷达 ---
+@st.fragment(run_every=900)
+def run_frontier_radar():
+    st.markdown("---")
+    st.markdown(f"### 🏆 前沿科技潜力雷达 | {datetime.now().strftime('%Y-%m-%d')}")
+    
+    frontier_pool = {
+        'AIPO': 'AI电力需求','ARKQ': '自动驾驶/机器人','ARKX': '太空探索','DRNZ': '无人机/国防',
+        'DTCR': '数据中心REITs','GRID': '智能电网','NLR': '全球核电','NUKZ': '下一代核能',
+        'PPA': '国防航空','QTUM': '量子计算','ROBO': '具身智能','SMH': 'AI芯片',
+        'SOXX': '半导体全链','TCAI': 'AI基础设施', 'URNM': '铀矿与核燃料',
+        'XAR': '航空制造','TAN': '太阳能','PBW': '绿色能源'
+    }
+
+    tickers = list(frontier_pool.keys()) + ['SPY', 'QQQ']
+    raw_data = yf.download(tickers, period='7mo', auto_adjust=True, progress=False)
+    if raw_data.empty: return
+    
+    close_data = raw_data['Close']
+    today_return = close_data.pct_change().iloc[-1]
+    m1_return = close_data.pct_change(21).iloc[-1]
+    m3_return = close_data.pct_change(63).iloc[-1]
+    volatility = close_data.pct_change().std() * np.sqrt(252)
+
+    results = []
+    for ticker, name in frontier_pool.items():
+        # 潜力得分 = ((1月涨幅*0.7) + (3月涨幅*0.3)) / 年化波动
+        score = ((m1_return[ticker] * 0.7) + (m3_return[ticker] * 0.3)) / volatility[ticker]
+        results.append({
+            '代码': ticker, '行业领域': name, '今日涨幅': today_return[ticker],
+            '最近1月涨幅': m1_return[ticker], '相对SPY': m1_return[ticker] - m1_return['SPY'],
+            '年化波动': volatility[ticker], '潜力得分': score
+        })
+
+    df = pd.DataFrame(results).sort_values(by='潜力得分', ascending=False).head(10)
+
+    # 样式处理
+    def color_val(v):
+        color = "#2ecc71" if v > 0 else "#e74c3c"
+        return f"color: {color}; font-weight: bold;"
+
+    st.dataframe(
+        df.style.format({
+            '今日涨幅': '{:.2%}', '最近1月涨幅': '{:.2%}', '相对SPY': '{:+.2%}',
+            '年化波动': '{:.2%}', '潜力得分': '{:.4f}'
+        }).map(color_val, subset=['今日涨幅', '最近1月涨幅', '相对SPY'])
+          .background_gradient(subset=['潜力得分'], cmap='Blues'),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    top_1 = df.iloc[0]['代码']
+    st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。
+    
 # --- 启动运行 ---
 run_omega()
 run_v10_pro()
+run_v7_sector()      
+run_frontier_radar() 
