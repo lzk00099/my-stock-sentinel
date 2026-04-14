@@ -196,8 +196,15 @@ def run_omega():
             
         with col3:
             st.markdown("**VVIX 指数**")
-            # 解决数值不显示问题
-            st.markdown(f"<h2 style='margin:0;'>{vv_curr:.2f}</h2>", unsafe_allow_html=True)
+            # 1. 增加异常值处理：如果获取到的是 NaN 或 0，给出提示
+            if vv_curr > 0:
+                # 2. 尝试使用 st.metric 作为 fallback，如果 markdown 依然失效
+                # 先用 HTML 渲染大字
+                st.markdown(f"<h2 style='margin:0; color:#ffffff;'>{vv_curr:.2f}</h2>", unsafe_allow_html=True)
+            else:
+                # 如果数据源没拿到数，显示 N/A
+                st.markdown("<h2 style='margin:0; color:gray;'>N/A</h2>", unsafe_allow_html=True)
+            
             st.caption(f"趋势: {slope_desc}")
             
         with col4:
@@ -502,6 +509,7 @@ def run_frontier_radar():
     st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。")
 
 # --- 启动运行 ---
+yf.download.cache_clear()
 run_omega()  
 run_v10_pro()
 run_v7_sector()
