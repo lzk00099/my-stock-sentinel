@@ -260,12 +260,89 @@ def run_omega():
             st.success("✅ 全球宏观走势平稳，多空博弈处于平衡区间。")
 
 # --- 核心引擎 2: Sentinel V12.4 Pro ---
+SECTOR_ETFS = {
+    "XLK": "科技", "XLV": "医疗", "XLF": "金融", "XLY": "消费", 
+    "XLI": "工业", "XLP": "必选", "XLE": "能源", "XLB": "材料"
+}
+INDEX_TICKERS = ["QQQ", "SPY", "IWM", "DIA"]
 @st.fragment(run_every=60)
 def run_v10_pro():
     st.markdown("---")
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "DIA": "道琼斯", "NVDA": "英伟达"}
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
+
+@st.fragment(run_every=60)
+def run_v10_pro():
+    # ... 前置代码 (get_market_times 等) ...
+    
+    # 统一获取看板所需数据 (增加 20 日均线所需长度)
+    all_monitor_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"] + list(SECTOR_ETFS.keys())
+    data_monitor = yf.download(all_monitor_tickers, period="30d", interval="1d", progress=False)
+    
+    # --- 看板计算逻辑 ---
+    # 1. VIX & VVIX 处理
+    vix_s = data_monitor["Close"]["^VIX"].dropna()
+    vvix_s = data_monitor["Close"]["^VVIX"].dropna()
+    v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
+    
+    # VVIX 斜率 (取最近 5 日)
+    vv_slope = np.polyfit(np.arange(5), vvix_s.tail(5).values, 1)[0] if len(vvix_s) >= 5 else 0
+    vv_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
+    
+    vix_color = "#10b981" if v_curr < 18 else "#facc15" if v_curr < 25 else "#ef4444"
+    
+    # 2. 市场宽度 (8大行业站上 20MA 比例)
+    breadth_count = 0
+    for etf in SECTOR_ETFS.keys():
+        prices = data_monitor["Close"][etf].dropna()
+        if len(prices) >= 20:
+            ma20 = prices.rolling(20).mean().iloc[-1]
+            if prices.iloc[-1] > ma20:
+                breadth_count += 1
+    breadth_pct = breadth_count / len(SECTOR_ETFS)
+    
+    # 3. 指数共振 (QQQ, SPY, IWM, DIA 日内/短线方向)
+    up_indices = 0
+    for idx in INDEX_TICKERS:
+        p = data_monitor["Close"][idx].dropna()
+        if len(p) >= 2 and p.iloc[-1] > p.iloc[-2]: # 简单昨日共振逻辑
+            up_indices += 1
+    resonance_desc = "🔥 全线共振" if up_indices == 4 else "横盘分化" if up_indices >= 2 else "❄️ 普跌压制"
+
+    # --- UI 渲染部分 (非交易时段也显示) ---
+    st.markdown("### 📊 Sentinel 全球宏观仪表盘")
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    
+    with m_col1:
+        st.markdown(f"**VIX 恐慌指数**")
+        st.markdown(f"<h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
+        st.caption("波动率环境评分")
+        
+    with m_col2:
+        st.markdown(f"**VVIX 速率**")
+        st.markdown(f"<h2 style='margin:0;'>{vvix_s.iloc[-1]:.2f}</h2>", unsafe_allow_html=True)
+        st.caption(f"趋势: {vv_desc}")
+        
+    with m_col3:
+        # 市场宽度进度条
+        st.markdown("**市场宽度 (Sector > 20MA)**")
+        st.progress(breadth_pct)
+        st.caption(f"行业多头占比: {breadth_pct:.0%}")
+        
+    with m_col4:
+        st.markdown("**四大指数共振**")
+        res_color = "#10b981" if up_indices >= 3 else "#ef4444" if up_indices <= 1 else "#facc15"
+        st.markdown(f"<h3 style='color:{res_color}; margin:0;'>{resonance_desc}</h3>", unsafe_allow_html=True)
+        st.caption(f"上涨指数数量: {up_indices}/4")
+
+    # --- 原始非交易/交易逻辑 ---
+    if not is_market_open():
+        st.info("🌙 市场已关闭 - 仪表盘保持实时静态分析")
+        # ... 保持你原有的倒计时和 summary table ...
+        return
+
+    # ... 进入交易时段逻辑 (run_v12_pro 剩余部分) ...
     now, open_time, countdown = get_market_times()
     if not is_market_open():
         st.warning(f"🌙 当前非交易时段。系统进入休眠模式。")
