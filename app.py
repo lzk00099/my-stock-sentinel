@@ -160,35 +160,51 @@ def run_omega():
         slope_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
         
         # VIX 颜色与评级逻辑
-        if v_curr < 15:
-            vix_color, vix_rank = "#10b981", "【安全 · 忽略尾部风险】" # 绿色
-        elif v_curr < 20:
-            vix_color, vix_rank = "#facc15", "【防守 · 波动率回归中】" # 黄色
-        elif v_curr < 28:
-            vix_color, vix_rank = "#fb923c", "【警惕 · 市场对冲升温】" # 橙色
+# 在计算 vix_color 前，强制确保 v_curr 是浮点数
+        v_curr = float(vix_s.iloc[-1]) if not vix_s.empty else 0.0
+
+# 逻辑检查：确保你的判断区间没有死角
+        if v_curr < 15.0:
+            vix_color, vix_rank = "#10b981", "【安全 · 忽略尾部风险】"
+        elif 15.0 <= v_curr < 20.0:
+            vix_color, vix_rank = "#facc15", "【防守 · 波动率回归中】"
+        elif 20.0 <= v_curr < 28.0:
+            vix_color, vix_rank = "#fb923c", "【警惕 · 市场对冲升温】"
         else:
-            vix_color, vix_rank = "#ef4444", "【恐慌 · 极端情绪爆发】" # 红色
+            vix_color, vix_rank = "#ef4444", "【恐慌 · 极端情绪爆发】"
         
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
         
         # 渲染顶层指标
+# --- 修复后的渲染部分 ---
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
+            # 使用 container 保证样式隔离
             st.markdown(f"**VIX 指数**")
-            st.markdown(f"<h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>", unsafe_allow_html=True)
+            # 这里的 color 样式一定要确保 v_curr 变化时重新生成
+            st.markdown(
+                f"""<div style="background-color: {vix_color}22; padding: 5px; border-radius: 5px;">
+                    <h2 style='color:{vix_color}; margin:0;'>{v_curr:.2f}</h2>
+                </div>""", 
+                unsafe_allow_html=True
+            )
             st.caption(f"{vix_rank}")
             
         with col2:
             st.metric("10Y 美债收益率", f"{t_curr:.2f}%")
             
         with col3:
-            st.markdown(f"**VVIX 指数**")
+            st.markdown("**VVIX 指数**")
+            # 解决数值不显示问题
             st.markdown(f"<h2 style='margin:0;'>{vv_curr:.2f}</h2>", unsafe_allow_html=True)
-            st.caption(f"趋势: ({slope_desc})")
+            st.caption(f"趋势: {slope_desc}")
             
         with col4:
-            st.metric("风险偏好总评", risk_status)
+            # 风险偏好建议使用带有颜色的 markdown 而非简单的 metric
+            pref_color = "#ef4444" if "🔴" in risk_status else "#10b981"
+            st.markdown(f"**风险偏好总评**")
+            st.markdown(f"<span style='color:{pref_color}; font-weight:bold;'>{risk_status}</span>", unsafe_allow_html=True)
 
         # --- 资产诊断报告 (保持原有逻辑) ---
         reports = []
