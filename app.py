@@ -503,7 +503,7 @@ def run_frontier_radar():
         'DTCR': '数据中心REITs','GRID': '智能电网','NLR': '全球核电','NUKZ': '下一代核能',
         'PPA': '国防航空','QTUM': '量子计算','ROBO': '具身智能','SMH': 'AI芯片',
         'SOXX': '半导体全链','TCAI': 'AI基础设施', 'URNM': '铀矿与核燃料',
-        'XAR': '航空制造','TAN': '太阳能','PBW': '绿色能源'
+        'XAR': '航空制造','TAN': '太阳能','PBW': '绿色能源','DRAM': '内存'
     }
 
     tickers = list(frontier_pool.keys()) + ['SPY', 'QQQ']
