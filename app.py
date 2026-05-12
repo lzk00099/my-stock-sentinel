@@ -153,20 +153,31 @@ def run_omega():
         
         v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
         vv_curr = vvix_s.iloc[-1] if not vvix_s.empty else 0
+        # --- 在 run_omega 函数内部查找此段并替换 ---
+
+        # 1. 确保 t_curr 是浮点数并初始化评价变量
         t_curr = float(tnx_s.iloc[-1]) if not tnx_s.empty else 0.0
         t_prev = float(tnx_s.iloc[-5]) if len(tnx_s) >= 5 else t_curr
         t_slope = t_curr - t_prev
+        tnx_eval = "数据加载中..."  # <-- 关键：先给一个初始默认值，防止 UnboundLocalError
 
-# 美债动态评价逻辑
+    # 2. 完善逻辑判定（确保覆盖所有数值区间）
         if t_curr > 4.5:
             tnx_eval = "⚠️ 高息压制，估值承压"
         elif t_curr < 3.5:
             tnx_eval = "🍃 低息环境，利好成长"
         else:
-            tnx_eval = "↗️ 收益率攀升" if t_slope > 0.05 else "↘️ 收益率回落" if t_slope < -0.05 else "稳定区间"
+    # 处于 3.5 - 4.5 之间时的斜率逻辑
+            if t_slope > 0.05:
+                tnx_eval = "↗️ 收益率攀升"
+            elif t_slope < -0.05:
+                tnx_eval = "↘️ 收益率回落"
+            else:
+                tnx_eval = "稳定基准区间"
 
-# --- 修改 col2 的渲染部分 ---
+# 3. 渲染部分 (确保 col2 和 get_metric_html 的参数都正确)
         with col2:
+    # 这里的 t_curr 和 tnx_eval 现在保证已经定义
             st.markdown(get_metric_html("10Y 美债收益率", f"{t_curr:.2f}%", tnx_eval, "#3b82f6"), unsafe_allow_html=True)
         
         # 计算 VVIX 斜率
