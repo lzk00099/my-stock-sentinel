@@ -279,8 +279,8 @@ def run_v10_pro():
         "QQQ": "纳指100", 
         "SPY": "标普500", 
         "IWM": "罗素2000", 
-        "SOXX": "半导体", # 新增
         "DIA": "道琼斯", 
+        "SOXX": "半导体",
         "NVDA": "英伟达"
     }
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
