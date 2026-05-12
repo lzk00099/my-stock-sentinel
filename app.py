@@ -226,10 +226,6 @@ def run_omega():
         with col1:
             st.markdown(get_metric_html("VIX 指数", f"{v_curr:.2f}", vix_rank, vix_color, "22"), unsafe_allow_html=True)
             
-        with col2:
-            # 10Y 美债通常为蓝色调
-            st.markdown(get_metric_html("10Y 美债收益率", f"{t_curr:.2f}%", "基准利率参考", "#3b82f6"), unsafe_allow_html=True)
-            
         with col3:
             # VVIX 数值及趋势
             vv_display = f"{vv_curr:.2f}" if vv_curr > 0 else "N/A"
