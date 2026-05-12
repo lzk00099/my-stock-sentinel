@@ -135,7 +135,7 @@ def run_omega():
     st.markdown("### 🌌 Sentinel Omega V3.2 | 全球全资产全景监控")
     assets = {
         "NQ=F": "纳指100期指", "ES=F": "标普500期指", "YM=F": "道琼斯期指",
-        "RTY=F": "罗素2000期指", "SOXX": "半导体指数",
+        "RTY=F": "罗素2000期指", "SOX": "半导体指数",
         "BTC-USD": "比特币(流动性)", "CL=F": "WTI原油",
         "GC=F": "黄金(避险)", "DX-Y.NYB": "美元指数"
     }
