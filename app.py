@@ -175,7 +175,7 @@ def run_omega():
         elif t_curr < 3.5:
             tnx_eval = "🍃 低息环境，利好成长"
         else:
-            tnx_eval = "↗️ 收益率攀升" if t_slope > 0.05 else "↘️ 收益率回落" if t_slope < -0.05 else "稳定基准区间"
+            tnx_eval = "↗️ 收益率攀升" if t_slope > 0.05 else "↘️ 收益率回落" if t_slope < -0.05 else "➡️ 稳定基准区间"
 
         # VVIX 趋势
         vvix_clean = vvix_s.tail(10).dropna()
