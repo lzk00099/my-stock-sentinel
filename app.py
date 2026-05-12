@@ -292,13 +292,13 @@ def run_v10_pro():
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     
 # 1. 基础数据准备
-   targets = {
-    "QQQ": "纳指100", 
-    "SPY": "标普500", 
-    "IWM": "罗素2000", 
-    "SOXX": "半导体", # 新增
-    "DIA": "道琼斯", 
-    "NVDA": "英伟达"
+    targets = {
+        "QQQ": "纳指100", 
+        "SPY": "标普500", 
+        "IWM": "罗素2000", 
+        "SOXX": "半导体", # 新增
+        "DIA": "道琼斯", 
+        "NVDA": "英伟达"
     }
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
     all_monitor_tickers = list(set(all_tickers + list(SECTOR_ETFS.keys()) + INDEX_TICKERS))
