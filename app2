@@ -184,7 +184,7 @@ def run_omega():
         
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
 
-        # 4. 卡片样式定义
+        # 4. 卡片样式定义 (内部定义一次即可)
         def get_metric_html(label, value, subtext, color="#ffffff", bg_opacity="11"):
             return f"""
             <div style="background-color: {color}{bg_opacity}; padding: 15px; border-radius: 10px; border-left: 5px solid {color}; height: 110px; display: flex; flex-direction: column; justify-content: center;">
@@ -194,7 +194,7 @@ def run_omega():
             </div>
             """
 
-        # 5. 渲染布局
+        # 5. 渲染布局 (先定义 columns, 再使用 col)
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -214,10 +214,8 @@ def run_omega():
 
         st.write("") 
 
-        # 6. 资产诊断报告表及市场宽度统计
+        # 6. 资产诊断报告表
         reports = []
-        bull_count, bear_count, neutral_count = 0, 0, 0 # 初始化市场宽度统计变量
-
         for symbol, name in assets.items():
             c_30 = safe_get(data_30m, symbol, "Close")
             c_5 = safe_get(data_5m, symbol, "Close")
@@ -236,34 +234,13 @@ def run_omega():
             s1, _, r1, _ = calculate_pivots_full(data_daily, symbol)
             sig = "🚀 强力多头" if score == 3 else "📉 空头占优" if score == 0 else "⚖️ 中性震荡"
             
-            # 统计市场宽度
-            if score == 3:
-                bull_count += 1
-            elif score == 0:
-                bear_count += 1
-            else:
-                neutral_count += 1
-            
             reports.append({
                 "标的": symbol, "名称": name, "最新价": round(curr_p, 2), 
                 "关键位 (S1|R1)": f"S:{s1} | R:{r1}", 
                 "RSI": round(rsi.iloc[-1], 1), "诊断结论": sig
             })
         
-        # 渲染市场宽度面板与表格
         if reports:
-            st.markdown("#### 📊 监控池市场宽度")
-            # 使用 HTML 控制样式，并用 / 隔开
-            st.markdown(f"""
-            <div style='background-color: #18181b; padding: 12px; border-radius: 8px; border: 1px solid #27272a; text-align: center; margin-bottom: 15px;'>
-                <h4 style='margin: 0; color: #e4e4e7; font-weight: 500; letter-spacing: 1px;'>
-                    <span style='color: #10b981;'>🚀 多头: {bull_count}</span> &nbsp;&nbsp;/&nbsp;&nbsp; 
-                    <span style='color: #facc15;'>⚖️ 震荡: {neutral_count}</span> &nbsp;&nbsp;/&nbsp;&nbsp; 
-                    <span style='color: #ef4444;'>📉 空头: {bear_count}</span>
-                </h4>
-            </div>
-            """, unsafe_allow_html=True)
-            
             st.table(pd.DataFrame(reports))
 
         # 7. 专家情报
