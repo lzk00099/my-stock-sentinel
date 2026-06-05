@@ -135,7 +135,8 @@ def run_omega():
     st.markdown("### 🌌 Sentinel Omega V3.2 | 全球全资产全景监控")
     assets = {
         "NQ=F": "纳指100期指", "ES=F": "标普500期指", "YM=F": "道琼斯期指",
-        "RTY=F": "罗素2000期指", "BTC-USD": "比特币(流动性)", "CL=F": "WTI原油",
+        "RTY=F": "罗素2000期指", "^SOX": "半导体指数",
+        "BTC-USD": "比特币(流动性)", "CL=F": "WTI原油",
         "GC=F": "黄金(避险)", "DX-Y.NYB": "美元指数"
     }
     all_symbols = list(assets.keys()) + ["^VIX", "^VVIX", "^TNX"]
@@ -145,25 +146,20 @@ def run_omega():
     data_daily = yf.download(all_symbols, period="2d", interval="1d", progress=False, auto_adjust=True)
 
     if not data_30m.empty:
+        # 1. 数据安全获取
         vix_s = safe_get(data_30m, "^VIX", "Close")
         vvix_s = safe_get(data_30m, "^VVIX", "Close")
         tnx_s = safe_get(data_30m, "^TNX", "Close")
         dx_s = safe_get(data_30m, "DX-Y.NYB", "Close")
         
-        v_curr = vix_s.iloc[-1] if not vix_s.empty else 0
-        vv_curr = vvix_s.iloc[-1] if not vvix_s.empty else 0
-        t_curr = tnx_s.iloc[-1] if not tnx_s.empty else 0
-        
-        # 计算 VVIX 斜率
-        vvix_clean = vvix_s.tail(10).dropna()
-        vv_slope = np.polyfit(np.arange(len(vvix_clean)), vvix_clean.values, 1)[0] if len(vvix_clean) > 1 else 0
-        slope_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
-        
-        # VIX 颜色与评级逻辑
-# 在计算 vix_color 前，强制确保 v_curr 是浮点数
+        # 2. 计算核心指标
         v_curr = float(vix_s.iloc[-1]) if not vix_s.empty else 0.0
+        vv_curr = float(vvix_s.iloc[-1]) if not vvix_s.empty else 0.0
+        t_curr = float(tnx_s.iloc[-1]) if not tnx_s.empty else 0.0
+        t_prev = float(tnx_s.iloc[-5]) if len(tnx_s) >= 5 else t_curr
+        t_slope = t_curr - t_prev
 
-# 逻辑检查：确保你的判断区间没有死角
+        # 3. 逻辑判定 (VIX 颜色与评价)
         if v_curr < 15.0:
             vix_color, vix_rank = "#10b981", "【安全 · 忽略尾部风险】"
         elif 15.0 <= v_curr < 20.0:
@@ -172,56 +168,58 @@ def run_omega():
             vix_color, vix_rank = "#fb923c", "【警惕 · 市场对冲升温】"
         else:
             vix_color, vix_rank = "#ef4444", "【恐慌 · 极端情绪爆发】"
+
+        # 美债动态评价
+        if t_curr > 4.5:
+            tnx_eval = "⚠️ 高息压制，估值承压"
+        elif t_curr < 3.5:
+            tnx_eval = "🍃 低息环境，利好成长"
+        else:
+            tnx_eval = "↗️ 收益率攀升" if t_slope > 0.05 else "↘️ 收益率回落" if t_slope < -0.05 else "➡️ 稳定基准区间"
+
+        # VVIX 趋势
+        vvix_clean = vvix_s.tail(10).dropna()
+        vv_slope = np.polyfit(np.arange(len(vvix_clean)), vvix_clean.values, 1)[0] if len(vvix_clean) > 1 else 0
+        slope_desc = "↗️ 升温" if vv_slope > 0.1 else "↘️ 降温" if vv_slope < -0.1 else "➡️ 平稳"
         
         risk_status = "🔴 避险模式 (Risk-Off)" if v_curr > 22 or vv_slope > 0.3 else "🟢 积极模式 (Risk-On)"
-        
-        # 渲染顶层指标
-        col1, col2, col3, col4 = st.columns(4)
-        
-        # 统一的卡片样式定义
+
+        # 4. 卡片样式定义 (内部定义一次即可)
         def get_metric_html(label, value, subtext, color="#ffffff", bg_opacity="11"):
             return f"""
-            <div style="
-                background-color: {color}{bg_opacity}; 
-                padding: 15px; 
-                border-radius: 10px; 
-                border-left: 5px solid {color};
-                height: 110px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                ">
+            <div style="background-color: {color}{bg_opacity}; padding: 15px; border-radius: 10px; border-left: 5px solid {color}; height: 110px; display: flex; flex-direction: column; justify-content: center;">
                 <p style='margin:0; font-size: 0.9rem; color: #a1a1aa; font-weight: 500;'>{label}</p>
                 <h2 style='margin:0; color:{color}; font-size: 1.8rem; line-height: 1.2;'>{value}</h2>
                 <p style='margin:0; font-size: 0.8rem; color: #d4d4d8; opacity: 0.8;'>{subtext}</p>
             </div>
             """
 
+        # 5. 渲染布局 (先定义 columns, 再使用 col)
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
             st.markdown(get_metric_html("VIX 指数", f"{v_curr:.2f}", vix_rank, vix_color, "22"), unsafe_allow_html=True)
             
         with col2:
-            # 10Y 美债通常为蓝色调
-            st.markdown(get_metric_html("10Y 美债收益率", f"{t_curr:.2f}%", "基准利率参考", "#3b82f6"), unsafe_allow_html=True)
+            st.markdown(get_metric_html("10Y 美债收益率", f"{t_curr:.2f}%", tnx_eval, "#3b82f6"), unsafe_allow_html=True)
             
         with col3:
-            # VVIX 数值及趋势
             vv_display = f"{vv_curr:.2f}" if vv_curr > 0 else "N/A"
             st.markdown(get_metric_html("VVIX 指数", vv_display, f"趋势: {slope_desc}", "#a855f7"), unsafe_allow_html=True)
             
         with col4:
-            # 风险偏好总评
-            pref_color = "#ef4444" if "🔴" in risk_status else "#10b981"
-            # 去掉前缀表情符号显示在标题，内容仅留文字
             status_text = risk_status.replace("🔴 ", "").replace("🟢 ", "")
+            pref_color = "#ef4444" if "🔴" in risk_status else "#10b981"
             st.markdown(get_metric_html("风险偏好总评", status_text, "Sentinel 系统建议", pref_color), unsafe_allow_html=True)
 
-        st.write("") # 增加一点间距
+        st.write("") 
 
-        # --- 资产诊断报告 (保持原有逻辑) ---
+        # 6. 资产诊断报告表
         reports = []
         for symbol, name in assets.items():
-            c_30, c_5, v_5 = safe_get(data_30m, symbol, "Close"), safe_get(data_5m, symbol, "Close"), safe_get(data_5m, symbol, "Volume")
+            c_30 = safe_get(data_30m, symbol, "Close")
+            c_5 = safe_get(data_5m, symbol, "Close")
+            v_5 = safe_get(data_5m, symbol, "Volume")
             if len(c_30) < 20 or c_5.empty: continue
             
             curr_p = c_5.iloc[-1]
@@ -245,19 +243,19 @@ def run_omega():
         if reports:
             st.table(pd.DataFrame(reports))
 
-        # --- 专家情报 ---
+        # 7. 专家情报
         st.markdown("#### 🤖 Sentinel Omega 专家情报")
         notes = []
         if not dx_s.empty and len(dx_s) >= 5:
             if dx_s.iloc[-1] > dx_s.iloc[-5]:
-                notes.append("💵 **美元压制**：美元指数日内走强，对风险资产构成估值压力。")
+                notes.append("💵 **美元压制**：美元指数走强，压制风险资产估值。")
         
         btc_s = [r for r in reports if "BTC-USD" in r['标的']]
         if btc_s and "🚀 强力多头" not in btc_s[0]['诊断结论']:
-            notes.append("₿ **流动性预警**：比特币动能不足，暗示场内投机资金相对谨慎。")
+            notes.append("₿ **流动性预警**：比特币动能偏弱，提示场内投机情绪谨慎。")
             
         if v_curr > 20:
-            notes.append(f"🚨 **中高波环境**：VIX 处于 {v_curr:.2f}，此时操作应严格执行止损计划。")
+            notes.append(f"🚨 **波动预警**：VIX 高于 20，需严格执行风控止损。")
 
         if notes:
             for n in notes: st.info(n)
@@ -277,7 +275,14 @@ def run_v10_pro():
     st.markdown("### 🏛️ Sentinel V12.4 Pro | 全维度结构与期权决策终端")
     
 # 1. 基础数据准备
-    targets = {"QQQ": "纳指100", "SPY": "标普500", "IWM": "罗素2000", "DIA": "道琼斯", "NVDA": "英伟达"}
+    targets = {
+        "QQQ": "纳指100", 
+        "SPY": "标普500", 
+        "IWM": "罗素2000", 
+        "DIA": "道琼斯", 
+        "SOXX": "半导体",
+        "NVDA": "英伟达"
+    }
     all_tickers = list(targets.keys()) + ["^VIX", "^VVIX", "^TNX"]
     all_monitor_tickers = list(set(all_tickers + list(SECTOR_ETFS.keys()) + INDEX_TICKERS))
     
@@ -546,3 +551,9 @@ def run_frontier_radar():
 # 5. 快速诊断结论 
     top_1 = df.iloc[0]['代码']
     st.success(f"✅ **扫描结果**：当前核心标的为 【{top_1}】。绿色代表多头动能，红色代表近期回调。")
+
+# --- 启动运行 ---
+run_omega()  
+run_v10_pro()
+run_v7_sector()
+run_frontier_radar()
