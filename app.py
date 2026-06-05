@@ -309,10 +309,32 @@ def run_v10_pro():
         
 # --- B. 交易时段逻辑 (仪表盘与核心分析) ---
     
-    # 1. 计算宽度与共振 (原逻辑正常，予以保留)
-    breadth_count = sum(1 for etf in SECTOR_ETFS.keys() if data_monitor["Close"][etf].iloc[-1] > data_monitor["Close"][etf].rolling(20).mean().iloc[-1])
-    breadth_pct = breadth_count / len(SECTOR_ETFS)
-    up_indices = sum(1 for idx in INDEX_TICKERS if data_monitor["Close"][idx].iloc[-1] > data_monitor["Close"][idx].iloc[-2])
+    # 1. 计算宽度与共振 (修复版：增加 NaN 与长度容错)
+    breadth_count = 0
+    valid_sectors = 0
+    
+    # 确保 data_monitor["Close"] 存在且是 DataFrame
+    if "Close" in data_monitor and isinstance(data_monitor["Close"], pd.DataFrame):
+        for etf in SECTOR_ETFS.keys():
+            if etf in data_monitor["Close"].columns:
+                close_data = data_monitor["Close"][etf].dropna()
+                # 必须确保至少有 20 个交易日的数据才能计算 20MA
+                if len(close_data) >= 20:
+                    ma20 = close_data.rolling(20).mean()
+                    if close_data.iloc[-1] > ma20.iloc[-1]:
+                        breadth_count += 1
+                    valid_sectors += 1
+                    
+    breadth_pct = breadth_count / valid_sectors if valid_sectors > 0 else 0.0
+    
+    # 同理修复指数共振的容错
+    up_indices = 0
+    if "Close" in data_monitor and isinstance(data_monitor["Close"], pd.DataFrame):
+        for idx in INDEX_TICKERS:
+            if idx in data_monitor["Close"].columns:
+                idx_data = data_monitor["Close"][idx].dropna()
+                if len(idx_data) >= 2 and idx_data.iloc[-1] > idx_data.iloc[-2]:
+                    up_indices += 1
 
     # 2. 渲染仪表盘 (仅显示宽度和共振)
     st.markdown("#### 📊 市场实时状态")
